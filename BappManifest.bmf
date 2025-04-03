@@ -3,7 +3,7 @@ ExtensionType: 1
 Name: Hackvertor
 RepoName: hackvertor
 ScreenVersion: 2.0.15
-SerialVersion: 49
+SerialVersion: 51
 MinPlatformVersion: 4
 ProOnly: False
 Author: Gareth Heyes, PortSwigger
