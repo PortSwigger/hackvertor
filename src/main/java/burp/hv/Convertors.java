@@ -4,6 +4,10 @@ import bsh.EvalError;
 import bsh.Interpreter;
 import burp.IParameter;
 import burp.IRequestInfo;
+import burp.api.montoya.http.Http;
+import burp.api.montoya.http.message.HttpHeader;
+import burp.api.montoya.http.message.params.ParsedHttpParameter;
+import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.hv.ai.AI;
 import burp.hv.settings.InvalidTypeSettingException;
 import burp.hv.settings.UnregisteredSettingException;
@@ -52,6 +56,7 @@ import org.unbescape.css.CssStringEscapeType;
 import org.unbescape.html.HtmlEscape;
 import org.unbescape.html.HtmlEscapeLevel;
 import org.unbescape.html.HtmlEscapeType;
+import org.unbescape.java.JavaEscape;
 import org.unbescape.javascript.JavaScriptEscape;
 import org.unbescape.javascript.JavaScriptEscapeLevel;
 import org.unbescape.javascript.JavaScriptEscapeType;
@@ -106,7 +111,7 @@ public class Convertors {
         if (args.size() < pos + 1) {
             return "";
         }
-        return args.get(pos);
+        return JavaEscape.unescapeJava(args.get(pos));
     }
 
     public static Boolean getBoolean(ArrayList<String> args, Integer pos) {
@@ -253,14 +258,16 @@ public class Convertors {
                 return increment_var(globalVariables, getInt(arguments, 0), getString(arguments, 1), getBoolean(arguments, 2));
             case "decrement_var":
                 return decrement_var(globalVariables, getInt(arguments, 0), getString(arguments, 1), getBoolean(arguments, 2));
+            case "context_request":
+                return context_request(getString(arguments, 0), hackvertor);
             case "context_url":
-                return context_url(getString(arguments,0), hackvertor);
+                return context_url(getString(arguments,0), getString(arguments,1), hackvertor);
             case "context_header":
-                return context_header(getString(arguments,0), hackvertor);
+                return context_header(getString(arguments,0), getString(arguments,1), hackvertor);
             case "context_body":
-                return context_body(hackvertor);
+                return context_body(getString(arguments,0), hackvertor);
             case "context_param":
-                return context_param(getString(arguments,0), hackvertor);
+                return context_param(getString(arguments,0),getString(arguments,1), hackvertor);
             case "charset_convert": {
                 try {
                     return charset_convert(output, getString(arguments, 0), getString(arguments, 1));
@@ -268,6 +275,8 @@ public class Convertors {
                     throw new ParseException("Unsupported encoding \"" + e.getCause().getMessage() + "\"");
                 }
             }
+            case "d_utf7":
+                return utf7Decode(output);
             case "utf7":
                 return utf7(output, getString(arguments, 0));
             case "brotli_decompress":
@@ -628,6 +637,8 @@ public class Convertors {
                 return ai_tag(variableMap, output, getString(arguments, 1), getString(arguments, 2), null, customTags, hackvertor, Double.parseDouble(getString(arguments, 0)), false);
             case "read_url":
                 return read_url(output, getString(arguments, 0), getBoolean(arguments, 1), getString(arguments, 2));
+            case "read_file":
+                return read_file(output, getString(arguments, 0), getBoolean(arguments, 1), getString(arguments, 2));
             case "system":
                 return system(output, getBoolean(arguments, 0), getString(arguments, 1));
         }
@@ -869,45 +880,77 @@ public class Convertors {
         return helpers.bytesToString(output);
     }
 
-    static String context_url(String properties, Hackvertor hackvertor) {
+    static String context_url(String properties, String key, Hackvertor hackvertor) {
+        String errorMessage = CustomTags.checkTagExecutionPermissions(key);
+        if(errorMessage != null) {
+            return errorMessage;
+        }
         if(hackvertor == null) {
             return properties;
         }
-        IRequestInfo analyzedRequest = hackvertor.getAnalyzedRequest();
-        properties = properties.replace("$protocol", analyzedRequest.getUrl().getProtocol());
-        properties = properties.replace("$host", analyzedRequest.getUrl().getHost());
-        properties = properties.replace("$path", analyzedRequest.getUrl().getPath());
-        properties = properties.replace("$file", analyzedRequest.getUrl().getFile());
-        properties = properties.replace("$query", analyzedRequest.getUrl().getQuery());
-        properties = properties.replace("$port", String.valueOf(analyzedRequest.getUrl().getPort()));
+
+        HttpRequest req = hackvertor.getRequest();
+        properties = properties.replace("$protocol", req.httpService().secure()? "https:" : "http");
+        properties = properties.replace("$host", req.httpService().host());
+        properties = properties.replace("$path", req.pathWithoutQuery());
+        properties = properties.replace("$file", req.fileExtension());
+        properties = properties.replace("$query", req.query());
+        properties = properties.replace("$port", req.httpService().port()+"");
         return properties;
     }
 
-    static String context_header(String properties, Hackvertor hackvertor) {
-        if(hackvertor == null) {
+    static String context_request(String key, Hackvertor hackvertor) {
+        String errorMessage = CustomTags.checkTagExecutionPermissions(key);
+        if(errorMessage != null) {
+            return errorMessage;
+        }
+        if(hackvertor == null || hackvertor.getRequest() == null) {
+            return "";
+        }
+        return hackvertor.getRequest().toString();
+    }
+
+    static String context_header(String properties, String key, Hackvertor hackvertor) {
+        String errorMessage = CustomTags.checkTagExecutionPermissions(key);
+        if(errorMessage != null) {
+            return errorMessage;
+        }
+        if(hackvertor == null || hackvertor.getRequest() == null) {
             return properties;
         }
-        IRequestInfo analyzedRequest = hackvertor.getAnalyzedRequest();
-        List<String> headers = analyzedRequest.getHeaders();
-        for(String header : headers) {
-            String[] nameValue = header.split(":");
-            if(nameValue.length > 1) {
-                properties = properties.replace("$" + nameValue[0].trim(), nameValue[1].trim()
-                        + (nameValue.length > 2 ? ":" + String.join(":",  Arrays.copyOfRange(nameValue, 2, nameValue.length)) : ""));
-            }
+        HttpRequest analyzedRequest = hackvertor.getRequest();
+        List<HttpHeader> headers = analyzedRequest.headers();
+        for(HttpHeader header : headers) {
+            properties = properties.replace("$" + header.name(), header.value());
         }
         return properties;
     }
-    static String context_param(String properties, Hackvertor hackvertor) {
-        if(hackvertor == null) {
+
+    static String context_param(String properties, String key, Hackvertor hackvertor) {
+        String errorMessage = CustomTags.checkTagExecutionPermissions(key);
+        if(errorMessage != null) {
+            return errorMessage;
+        }
+        if(hackvertor == null || hackvertor.getRequest() == null) {
             return properties;
         }
-        IRequestInfo analyzedRequest = hackvertor.getAnalyzedRequest();
-        List<IParameter> params = analyzedRequest.getParameters();
-        for(IParameter param : params) {
-            properties = properties.replace("$"+param.getName(), param.getValue());
+        HttpRequest analyzedRequest = hackvertor.getRequest();
+        List<ParsedHttpParameter> params = analyzedRequest.parameters();
+        for(ParsedHttpParameter param : params) {
+            properties = properties.replace("$"+param.name(), param.value());
         }
         return properties;
+    }
+
+    static String context_body(String key, Hackvertor hackvertor) {
+        String errorMessage = CustomTags.checkTagExecutionPermissions(key);
+        if(errorMessage != null) {
+            return errorMessage;
+        }
+        if(hackvertor == null || hackvertor.getRequest() == null) {
+            return "";
+        }
+        return hackvertor.getRequest().bodyToString();
     }
 
     static String increment_var(HashMap<String, String> variableMap, int start, String variableName, Boolean enabled) {
@@ -940,16 +983,6 @@ public class Convertors {
         return returnValue;
     }
 
-    static String context_body(Hackvertor hackvertor) {
-        if(hackvertor == null) {
-            return "";
-        }
-        IRequestInfo analyzedRequest = hackvertor.getAnalyzedRequest();
-        int bodyOffset = analyzedRequest.getBodyOffset();
-        byte[] req = hackvertor.getRequest();
-        return helpers.bytesToString(Arrays.copyOfRange(req, bodyOffset, req.length));
-    }
-
     static String json_parse(String input, String properties) {
         input = input.trim();
         return recursiveTraverse("", new JSONObject(input), properties);
@@ -979,18 +1012,106 @@ public class Convertors {
         return properties;
     }
 
-    static String utf7(String input, String excludeCharacters) {
-        String output = "";
+    static String utf7(String input, String excludePattern) {
+        Pattern pattern = (excludePattern == null || excludePattern.isEmpty())
+                ? null
+                : Pattern.compile(excludePattern);
+
+        StringBuilder output = new StringBuilder();
+        StringBuilder toEncode = new StringBuilder();
+        
         for (int i = 0; i < input.length(); i++) {
             char c = input.charAt(i);
-            if (excludeCharacters.indexOf(c) > -1) {
-                output += c;
-                continue;
+            
+            // Check if character should be excluded from encoding (and is ASCII)
+            if (pattern != null && pattern.matcher(String.valueOf(c)).matches() && c < 128) {
+                // If we have accumulated characters to encode, encode them first
+                if (toEncode.length() > 0) {
+                    encodeUtf7Block(toEncode.toString(), output);
+                    toEncode.setLength(0);
+                }
+                // Special handling for plus sign in UTF-7
+                if (c == '+') {
+                    output.append("+-");
+                } else {
+                    output.append(c);
+                }
+            } else {
+                // Accumulate characters that need encoding
+                toEncode.append(c);
             }
-            output += "+" + base64Encode("\u0000" + c).replaceAll("=+$", "") + "-";
-
         }
-        return output;
+        
+        // Encode any remaining characters
+        if (toEncode.length() > 0) {
+            encodeUtf7Block(toEncode.toString(), output);
+        }
+        
+        return output.toString();
+    }
+    
+    private static void encodeUtf7Block(String text, StringBuilder output) {
+        try {
+            // Convert to UTF-16BE bytes for proper UTF-7 encoding
+            byte[] utf16Bytes = text.getBytes("UTF-16BE");
+            // Base64 encode and remove padding
+            String base64 = helpers.base64Encode(utf16Bytes).replaceAll("=+$", "");
+            // UTF-7 uses modified base64 (but we keep / as standard UTF-7)
+            output.append('+').append(base64).append('-');
+        } catch (Exception e) {
+            // Fallback - should not happen
+            for (char c : text.toCharArray()) {
+                output.append('+')
+                      .append(base64Encode("\u0000" + c).replaceAll("=+$", ""))
+                      .append('-');
+            }
+        }
+    }
+
+    public static String utf7Decode(String input) {
+        StringBuilder output = new StringBuilder();
+        int i = 0;
+        while (i < input.length()) {
+            char c = input.charAt(i);
+            if (c == '+') {
+                if (i + 1 < input.length() && input.charAt(i + 1) == '-') {
+                    output.append('+');
+                    i += 2;
+                } else {
+                    int endIndex = input.indexOf('-', i + 1);
+                    if (endIndex == -1) {
+                        endIndex = input.length();
+                    }
+                    if (endIndex > i + 1) {
+                        String base64Part = input.substring(i + 1, endIndex);
+                        base64Part = base64Part.replace(',', '/');
+                        int padding = (4 - base64Part.length() % 4) % 4;
+                        for (int p = 0; p < padding; p++) {
+                            base64Part += "=";
+                        }
+                        try {
+                            byte[] bytes = helpers.base64Decode(base64Part);
+                            for (int b = 0; b < bytes.length - 1; b += 2) {
+                                int high = bytes[b] & 0xFF;
+                                int low = bytes[b + 1] & 0xFF;
+                                char decodedChar = (char) ((high << 8) | low);
+                                output.append(decodedChar);
+                            }
+                        } catch (Exception e) {
+                            output.append(input.substring(i, Math.min(endIndex + 1, input.length())));
+                        }
+                    }
+                    i = endIndex;
+                    if (i < input.length() && input.charAt(i) == '-') {
+                        i++;
+                    }
+                }
+            } else {
+                output.append(c);
+                i++;
+            }
+        }
+        return output.toString();
     }
 
     static byte[] readUniBytes(String uniBytes) {
@@ -1412,16 +1533,25 @@ public class Convertors {
                 return "Unsupported algorithm";
             }
             String message = "";
-            String header = "{\n" +
-                    "  \"alg\": \"" + algo + "\",\n" +
-                    "  \"typ\": \"JWT\"\n" +
-                    "}";
-            message = base64urlEncode(header) + "." + base64urlEncode(payload);
+            // Build header JSON manually to ensure consistent field order (alg before typ)
+            String headerJsonStr = "{\"alg\":\"" + algo + "\",\"typ\":\"JWT\"}";
+            JSONObject payloadJson = new JSONObject(payload);
+            message = base64urlEncode(headerJsonStr) + "." + base64urlEncode(payloadJson.toString());
             if (!algoName.equals("none")) {
+                // Handle empty secret case - HMAC requires at least 1 byte
+                byte[] secretBytes = secret.getBytes();
+                if (secretBytes.length == 0) {
+                    // For empty secret, use a single null byte which is the standard behavior
+                    secretBytes = new byte[]{0};
+                }
+                
                 Mac hashMac = Mac.getInstance(algoName);
-                SecretKeySpec secret_key = new SecretKeySpec(secret.getBytes(), algoName);
+                SecretKeySpec secret_key = new SecretKeySpec(secretBytes, algoName);
                 hashMac.init(secret_key);
-                return message + "." + base64urlEncode(helpers.bytesToString(hashMac.doFinal(message.getBytes())));
+                // Encode the raw HMAC bytes directly to base64url, don't convert to string first
+                byte[] signature = hashMac.doFinal(message.getBytes());
+                String encodedSignature = Base64.getUrlEncoder().withoutPadding().encodeToString(signature);
+                return message + "." + encodedSignature;
             } else {
                 return message + ".";
             }
@@ -1468,7 +1598,6 @@ public class Convertors {
                 return "0";
             }
             JWTVerifier verifier = JWT.require(algorithm)
-                    .withIssuer(jwt.getIssuer())
                     .build();
             verifier.verify(token);
             return "1";
@@ -1912,33 +2041,37 @@ public class Convertors {
     }
 
     static String atbash_encrypt(String message) {
-        message = message.toLowerCase();
-        String encoded = "";
-        String key = "ZYXWVUTSRQPONMLKJIHGFEDCBA".toLowerCase();
+        StringBuilder encoded = new StringBuilder();
+        String keyUpper = "ZYXWVUTSRQPONMLKJIHGFEDCBA";
+        String keyLower = keyUpper.toLowerCase();
         for (int i = 0; i < message.length(); i++) {
             char chr = message.charAt(i);
-            if (Character.isLowerCase(chr)) {
-                encoded += key.charAt(message.codePointAt(i) - 97);
+            if (Character.isUpperCase(chr)) {
+                encoded.append(keyUpper.charAt(message.codePointAt(i) - 65));
+            } else if (Character.isLowerCase(chr)) {
+                encoded.append(keyLower.charAt(message.codePointAt(i) - 97));
             } else {
-                encoded += chr;
+                encoded.append(chr);
             }
         }
-        return encoded;
+        return encoded.toString();
     }
 
     static String atbash_decrypt(String ciphertext) {
-        ciphertext = ciphertext.toLowerCase();
-        String plaintext = "";
-        String key = "ZYXWVUTSRQPONMLKJIHGFEDCBA".toLowerCase();
+        StringBuilder plaintext = new StringBuilder();
+        String keyUpper = "ZYXWVUTSRQPONMLKJIHGFEDCBA";
+        String keyLower = keyUpper.toLowerCase();
         for (int i = 0; i < ciphertext.length(); i++) {
             char chr = ciphertext.charAt(i);
-            if (Character.isLowerCase(chr)) {
-                plaintext += (char) (key.indexOf(ciphertext.charAt(i)) + 97);
+            if (Character.isUpperCase(chr)) {
+                plaintext.append((char) (keyUpper.indexOf(ciphertext.charAt(i)) + 65));
+            } else if (Character.isLowerCase(chr)) {
+                plaintext.append((char) (keyLower.indexOf(ciphertext.charAt(i)) + 97));
             } else {
-                plaintext += chr;
+                plaintext.append(chr);
             }
         }
-        return plaintext;
+        return plaintext.toString();
     }
 
     static String rotN_bruteforce(String str) {
@@ -3160,7 +3293,9 @@ public class Convertors {
         if(errorMessage != null) {
             return errorMessage;
         }
+
         try {
+            String pythonModulePath = HackvertorExtension.generalSettings.getString("pythonModulePath");
             PythonInterpreter pythonInterpreter = new PythonInterpreter();
             pythonInterpreter.set("hackvertor", hackvertor);
             pythonInterpreter.set("input", input);
@@ -3170,7 +3305,7 @@ public class Convertors {
             for (Map.Entry<String, String> entry : variableMap.entrySet()) {
                 String name = entry.getKey();
                 Object value = entry.getValue();
-                if (name.length() > 0) {
+                if (!name.isEmpty()) {
                     pythonInterpreter.set(name, value);
                 }
             }
@@ -3201,10 +3336,12 @@ public class Convertors {
                 "orig_stdout = sys.stdout\n" +
                 "sys.stdout = StreamWrapper(orig_stdout)\n" +
                 "from burp.hv import Convertors\n" +
+                        (!pythonModulePath.isEmpty() ? "sys.path.insert(0, '"+pythonModulePath.replace("\\", "\\\\")   // backslashes first
+                                .replace("'", "\\'")+"')\n" : "")
+                        +
                 "def convert(input):\n" +
                 "   return Convertors.weakConvert(variableMap, customTags, input, hackvertor)\n" +
                 "\n";
-
                 pythonInterpreter.exec(initCode + code);
             }
             PyObject output = pythonInterpreter.get("output");
@@ -3214,9 +3351,11 @@ public class Convertors {
                 return "No output variable defined";
             }
         } catch (PyException e) {
-            return "Invalid Python code:" + e.toString();
+            return "Invalid Python code:" + e;
+        } catch (UnregisteredSettingException | InvalidTypeSettingException e) {
+            return "Error loading settings:" + e;
         } catch (Exception e) {
-            return "Unable to parse Python:" + e.toString();
+            return "Unable to parse Python:" + e;
         }
     }
 
@@ -3433,8 +3572,13 @@ public class Convertors {
             return "Failed to execute command:"+e;
         }
         try {
-            p.waitFor();
+            boolean finished = p.waitFor(60, java.util.concurrent.TimeUnit.SECONDS);
+            if (!finished) {
+                p.destroyForcibly();
+                return "Command execution timed out after 60 seconds";
+            }
         } catch (InterruptedException e) {
+            p.destroyForcibly();
             return "InterruptedException"+e;
         }
         BufferedReader b = new BufferedReader(new InputStreamReader(p.getInputStream()));
@@ -3485,6 +3629,7 @@ public class Convertors {
         try {
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
+            connection.setReadTimeout(60);
             connection.connect();
             BufferedReader br = null;
             if (100 <= connection.getResponseCode() && connection.getResponseCode() <= 399) {
@@ -3495,6 +3640,27 @@ public class Convertors {
             return br.lines().collect(Collectors.joining());
         } catch (IOException e) {
             return "Unable to get response";
+        }
+    }
+
+    static String read_file(String input, String charset, Boolean enabled, String executionKey) {
+        String errorMessage = CustomTags.checkTagExecutionPermissions(executionKey);
+        if(errorMessage != null) {
+            return errorMessage;
+        }
+        if(!charset.equalsIgnoreCase("UTF-8")) {
+            input = convertCharset(input, charset);
+        }
+        if(!enabled) {
+           return "The read file command is disabled until you change the parameter to true.";
+        }
+        try {
+            byte[] fileContent = Files.readAllBytes(Paths.get(input));
+            return new String(fileContent, charset);
+        } catch (IOException e) {
+            return "Unable to read file: " + e.getMessage();
+        } catch (Exception e) {
+            return "Error reading file: " + e.getMessage();
         }
     }
 }

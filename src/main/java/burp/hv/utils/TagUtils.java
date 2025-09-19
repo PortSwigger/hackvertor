@@ -2,7 +2,13 @@ package burp.hv.utils;
 
 import burp.IContextMenuInvocation;
 import burp.IRequestInfo;
+import burp.api.montoya.core.ToolType;
+import burp.api.montoya.http.message.requests.HttpRequest;
+import burp.api.montoya.ui.contextmenu.ContextMenuEvent;
+import burp.api.montoya.ui.contextmenu.InvocationType;
+import burp.api.montoya.ui.contextmenu.MessageEditorHttpRequestResponse;
 import burp.hv.Convertors;
+import burp.hv.HackvertorExtension;
 import burp.hv.settings.InvalidTypeSettingException;
 import burp.hv.tags.Tag;
 import burp.hv.settings.UnregisteredSettingException;
@@ -16,17 +22,16 @@ import java.awt.*;
 import java.awt.event.ActionListener;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.Collection;
+import java.util.*;
 import java.util.List;
-import java.util.Objects;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import static burp.hv.Convertors.auto_decode_no_decrypt;
 import static burp.hv.HackvertorExtension.*;
 
 public class TagUtils {
-    public static String paramRegex = "^[a-zA-Z_]\\w{0,10}$";
+    public static String paramRegex = "^[a-zA-Z_]\\w{0,100}$";
     public static String numberRegex = "^(?:0x[a-fA-F0-9]+|\\d+)$";
     public static String tagNameRegex = "[^\\w]";
 
@@ -91,7 +96,7 @@ public class TagUtils {
         return tags.stream().filter(tag -> tagName.equals(tag.name)).findFirst().orElse(null);
     }
 
-    public static ActionListener generateTagActionListener(final IContextMenuInvocation invocation, Tag tagObj) {
+    public static ActionListener generateTagActionListener(final ContextMenuEvent event, Tag tagObj) {
         return  e -> {
             boolean allowTagCount;
             try {
@@ -103,12 +108,19 @@ public class TagUtils {
             String[] tagStartEnd = Convertors.generateTagStartEnd(tagObj);
             String tagStart = tagStartEnd[0];
             String tagEnd = tagStartEnd[1];
-            if (invocation.getInvocationContext() == IContextMenuInvocation.CONTEXT_MESSAGE_EDITOR_REQUEST || invocation.getInvocationContext() == IContextMenuInvocation.CONTEXT_MESSAGE_VIEWER_REQUEST || invocation.getInvocationContext() == IContextMenuInvocation.CONTEXT_INTRUDER_PAYLOAD_POSITIONS) {
-                int[] bounds = invocation.getSelectionBounds();
-                byte[] message = invocation.getSelectedMessages()[0].getRequest();
+            if (event.invocationType() == InvocationType.MESSAGE_EDITOR_REQUEST || event.invocationType() == InvocationType.MESSAGE_VIEWER_REQUEST || event.invocationType() == InvocationType.INTRUDER_PAYLOAD_POSITIONS) {
+                int start;
+                int end;
+                Optional<MessageEditorHttpRequestResponse> editor = event.messageEditorRequestResponse();
+                if (editor.get().selectionOffsets().isPresent()) {
+                    start = editor.get().selectionOffsets().get().startIndexInclusive();
+                    end = editor.get().selectionOffsets().get().endIndexExclusive();
+                } else {
+                    start = editor.get().caretPosition();
+                    end = editor.get().caretPosition();
+                }
                 if(allowTagCount) {
-                    IRequestInfo analyzedRequest = helpers.analyzeRequest(message);
-                    String context = Utils.getContext(analyzedRequest);
+                    String context = Utils.getContext(editor.get().requestResponse().request());
                     if(contextTagCount.containsKey(context)) {
                         int currentCount = contextTagCount.get(context).get(tagObj.name) == null ? 0 : contextTagCount.get(context).get(tagObj.name);
                         contextTagCount.get(context).put(tagObj.name, currentCount + 1);
@@ -117,23 +129,24 @@ public class TagUtils {
                     int count = tagCount.get(tagObj.name) == null ? 0 : tagCount.get(tagObj.name);
                     tagCount.put(tagObj.name, count + 1);
                 }
-                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-                try {
-                    outputStream.write(Arrays.copyOfRange(message, 0, bounds[0]));
-                    outputStream.write(helpers.stringToBytes(tagStart));
-                    outputStream.write(Arrays.copyOfRange(message, bounds[0], bounds[1]));
-                    outputStream.write(helpers.stringToBytes(tagEnd));
-                    outputStream.write(Arrays.copyOfRange(message, bounds[1], message.length));
-                    outputStream.flush();
-                    invocation.getSelectedMessages()[0].setRequest(outputStream.toByteArray());
-                } catch (IOException e1) {
-                    System.err.println(e1.toString());
+
+                if(event.messageEditorRequestResponse().isPresent()) {
+                    HttpRequest request = event.messageEditorRequestResponse().get().requestResponse().request();
+                    String requestStr = request.toString();
+                    String selection = requestStr.substring(start, end);
+                    String modifiedRequest = "";
+                    modifiedRequest += requestStr.substring(0, start);
+                    modifiedRequest += tagStart;
+                    modifiedRequest += selection;
+                    modifiedRequest += tagEnd;
+                    modifiedRequest += requestStr.substring(end);
+                    event.messageEditorRequestResponse().get().setRequest(HttpRequest.httpRequest(request.httpService(), modifiedRequest));
                 }
             }
         };
     }
 
-    public static JMenu createTagMenuForCategory(List<Tag> tags, Tag.Category category, final IContextMenuInvocation invocation, String searchTag, Boolean regex, Tag specificTag) {
+    public static JMenu createTagMenuForCategory(List<Tag> tags, Tag.Category category, final ContextMenuEvent event, String searchTag, Boolean regex, Tag specificTag) {
         JMenu parentMenu = new JMenu(category.name());
         int tagCount = (int) tags.stream().filter(tag -> tag.category == category).count();
         if (tagCount > 40) {
@@ -151,7 +164,7 @@ public class TagUtils {
             final JMenuItem menu = new JMenuItem(tagObj.name);
             menu.setToolTipText(tagObj.tooltip);
             if ((category != null && category.equals(tagObj.category)) || (searchTag.length() > 0 && (regex ? tagObj.name.matches(searchTag) : tagObj.name.contains(searchTag)))) {
-                menu.addActionListener(generateTagActionListener(invocation, tagObj));
+                menu.addActionListener(generateTagActionListener(event, tagObj));
                 if (tagCount > 40) {
                     for (int i = 0; i < parentMenu.getItemCount(); i++) {
                         if (parentMenu.getItem(i).getText().equals("0-9") && Character.isDigit(tagObj.name.charAt(0))) {
@@ -208,5 +221,54 @@ public class TagUtils {
             default:
                 return null;
         }
+    }
+
+    public static boolean shouldProcessTags(ToolType toolType) {
+        boolean tagsInProxy;
+        boolean tagsInIntruder;
+        boolean tagsInRepeater;
+        boolean tagsInScanner;
+        boolean tagsInExtensions;
+
+        try {
+            tagsInProxy = HackvertorExtension.generalSettings.getBoolean("tagsInProxy");
+            tagsInIntruder = HackvertorExtension.generalSettings.getBoolean("tagsInIntruder");
+            tagsInRepeater = HackvertorExtension.generalSettings.getBoolean("tagsInRepeater");
+            tagsInScanner = HackvertorExtension.generalSettings.getBoolean("tagsInScanner");
+            tagsInExtensions = HackvertorExtension.generalSettings.getBoolean("tagsInExtensions");
+        } catch (UnregisteredSettingException | InvalidTypeSettingException e) {
+            HackvertorExtension.callbacks.printError("Error loading settings:" + e);
+            throw new RuntimeException(e);
+        }
+        switch (toolType) {
+            case PROXY:
+                if (!tagsInProxy) {
+                    return false;
+                }
+                break;
+            case INTRUDER:
+                if (!tagsInIntruder) {
+                    return false;
+                }
+                break;
+            case REPEATER:
+                if (!tagsInRepeater) {
+                    return false;
+                }
+                break;
+            case SCANNER:
+                if (!tagsInScanner) {
+                    return false;
+                }
+                break;
+            case EXTENSIONS:
+                if (!tagsInExtensions) {
+                    return false;
+                }
+                break;
+            default:
+                return false;
+        }
+        return true;
     }
 }
