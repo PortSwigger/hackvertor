@@ -3,11 +3,11 @@ ExtensionType: 1
 Name: Hackvertor
 RepoName: hackvertor
 ScreenVersion: 2.1.24
-SerialVersion: 52
-MinPlatformVersion: 4
+SerialVersion: 53
+MinPlatformVersion: 20
 ProOnly: False
 Author: Gareth Heyes, PortSwigger
 ShortDescription: Converts data using a tag-based configuration to apply various encoding and escaping operations.
-EntryPoint: releases/hackvertor-all.jar
+EntryPoint: hackvertor-all.jar
 BuildCommand: ./gradlew shadowJar
 SupportedProducts: Pro, Community
