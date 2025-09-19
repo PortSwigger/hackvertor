@@ -1,7 +1,9 @@
 package burp.hv.utils;
 
-import burp.IRequestInfo;
+import burp.api.montoya.http.message.ContentType;
+import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.hv.tags.CustomTags;
+import burp.hv.tags.TagAutomator;
 import burp.hv.settings.Settings;
 import burp.hv.tags.TagStore;
 import burp.hv.Variables;
@@ -23,19 +25,22 @@ import static burp.hv.HackvertorExtension.*;
 
 public class Utils {
 
-    public static String getContext(IRequestInfo analyzedRequest) {
-        if(analyzedRequest == null) {
+    public static String getContext(HttpRequest analyzedRequest) {
+        try {
+            if (analyzedRequest == null) {
+                return null;
+            }
+            if (analyzedRequest.contentType() == ContentType.JSON) {
+                return "JSON";
+            }
+            if (analyzedRequest.method() != null && analyzedRequest.method().equalsIgnoreCase("GET")) {
+                return "GET";
+            }
+            if (analyzedRequest.method() != null && analyzedRequest.method().equalsIgnoreCase("POST")) {
+                return "POST";
+            }
             return null;
-        }
-        if(analyzedRequest.getContentType() == IRequestInfo.CONTENT_TYPE_JSON) {
-            return "JSON";
-        }
-        if(analyzedRequest.getMethod() != null && analyzedRequest.getMethod().equalsIgnoreCase("GET")) {
-            return "GET";
-        }
-        if(analyzedRequest.getMethod() != null && analyzedRequest.getMethod().equalsIgnoreCase("POST")) {
-            return "POST";
-        }
+        } catch (Throwable ignored) {}
         return null;
     }
 
@@ -67,8 +72,10 @@ public class Utils {
         settings.registerBooleanSetting("tagsInRepeater", true, "Allow tags in Repeater", "Tag permissions", null);
         settings.registerBooleanSetting("tagsInScanner", true, "Allow tags in Scanner", "Tag permissions", null);
         settings.registerBooleanSetting("tagsInExtensions", true, "Allow tags in Extensions", "Tag permissions", null);
+        settings.registerBooleanSetting("tagsInResponse", false, "Allow tags in HTTP response", "Tag permissions", null);
         settings.registerBooleanSetting("codeExecutionTagsEnabled", false, "Allow code execution tags", "Tag permissions", "Using code execution tags on untrusted requests can compromise your system, are you sure?");
         settings.registerBooleanSetting("autoUpdateContentLength", true, "Auto update content length", "Requests", null);
+        settings.registerIntegerSetting("maxBodyLength", 3 * 1024 * 1024, "Maximum body length", "Requests");
         settings.registerBooleanSetting("allowTagCount", true, "Count tag usage (Not sent to any server)","Statistics", null);
         settings.registerBooleanSetting("allowAiToGenerateCode", false, "Use AI to generate code", "AI", "Using AI to generate code execution tags can compromise your system, be careful when using it with untrusted repeater requests. Are you sure?");
         settings.registerBooleanSetting("allowAiToSummariseCode", false, "Use AI to summarise custom tags code", "AI", null);
@@ -77,7 +84,7 @@ public class Utils {
         settings.registerBooleanSetting("learnFromRepeater", false, "Use AI to learn from repeater", "AI", "This is experimental. It will send your entire repeater requests to the AI in order to learn encodings. Are you sure you want to enable this?");
         settings.registerBooleanSetting("sortTagCategories", true, "Alphabetically sort tag categories", "Misc", null);
         settings.registerBooleanSetting("allowAutoConvertClipboard", false, "Auto convert clipboard","Misc", null);
-
+        settings.registerStringSetting("pythonModulePath", "", "Python module path","System");
     }
 
     public static JFrame getHackvertorWindowInstance() {
@@ -126,9 +133,17 @@ public class Utils {
                 Variables.showGlobalVariablesWindow();
             }
         });
+        JMenuItem tagAutomatorMenu = new JMenuItem("Tag Automator");
+        tagAutomatorMenu.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                TagAutomator.showRulesDialog();
+            }
+        });
         hvMenuBar.add(createCustomTagsMenu);
         hvMenuBar.add(listCustomTagsMenu);
         hvMenuBar.add(globalVariablesMenu);
+        hvMenuBar.add(tagAutomatorMenu);
         hvMenuBar.addSeparator();
         hvMenuBar.add(tagStoreMenu);
         JMenuItem settingsMenu = new JMenuItem("Settings");

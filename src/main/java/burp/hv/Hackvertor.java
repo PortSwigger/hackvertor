@@ -1,7 +1,5 @@
 package burp.hv;
-
-import burp.IHttpRequestResponse;
-import burp.IRequestInfo;
+import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.hv.tags.CustomTags;
 import burp.hv.tags.Tag;
 import burp.hv.tags.TagArgument;
@@ -23,22 +21,16 @@ import static burp.hv.HackvertorExtension.*;
 public class Hackvertor {
     private ArrayList<Tag> tags = new ArrayList<Tag>();
     private JSONArray customTags = new JSONArray();
-    private IRequestInfo analyzedRequest = null;
-    private byte[] request;
+    private HttpRequest request;
     public Hackvertor(){
         init();
     }
 
-    public void analyzeRequest(byte[] request, IHttpRequestResponse messageInfo) {
-        this.request = request;
-        this.analyzedRequest = helpers.analyzeRequest(messageInfo.getHttpService(), request);
-    }
-
-    public byte[] getRequest() {
+    public HttpRequest getRequest() {
         return request;
     }
 
-    public void setRequest(byte[] request) {
+    public void setRequest(HttpRequest request) {
         this.request = request;
     }
 
@@ -68,10 +60,6 @@ public class Hackvertor {
         return input;
     }
 
-    public IRequestInfo getAnalyzedRequest() {
-        return analyzedRequest;
-    }
-
     void init() {
         Tag tag;
         SortedMap m = Charset.availableCharsets();
@@ -96,9 +84,6 @@ public class Hackvertor {
         tag = new Tag(Tag.Category.Charsets, "charset_convert", true, "charset_convert(String input, String from, String to)");
         tag.argument1 = new TagArgument("string", "from");
         tag.argument2 = new TagArgument("string", "to");
-        tags.add(tag);
-        tag = new Tag(Tag.Category.Charsets, "utf7", true, "utf7(String str, String excludeCharacters)");
-        tag.argument1 = new TagArgument("string", "\\s\\t\\r'(),-./:?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789=+!");
         tags.add(tag);
         tags.add(new Tag(Tag.Category.Compression, "brotli_decompress", true, "brotli_decompress(String str)"));
         tags.add(new Tag(Tag.Category.Compression, "gzip_compress", true, "gzip_compress(String str)"));
@@ -194,9 +179,13 @@ public class Hackvertor {
         tags.add(new Tag(Tag.Category.Encode, "quoted_printable", true, "quoted_printable(String str)"));
         tags.add(new Tag(Tag.Category.Encode, "js_string", true, "js_string(String str)"));
         tags.add(new Tag(Tag.Category.Encode, "unicode_alternatives", true, "unicode_alteratives(String str)"));
+        tag = new Tag(Tag.Category.Encode, "utf7", true, "utf7(String str, String excludeCharacters)");
+        tag.argument1 = new TagArgument("string", "[\\s\\t\\r'(),-./:?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789=+!]");
+        tags.add(tag);
         tags.add(new Tag(Tag.Category.Decode, "d_saml", true, "d_saml(String str)"));
         tags.add(new Tag(Tag.Category.Decode, "auto_decode", true, "auto_decode(String str)"));
         tags.add(new Tag(Tag.Category.Decode, "auto_decode_no_decrypt", true, "auto_decode_no_decrypt(String str)"));
+        tags.add(new Tag(Tag.Category.Decode, "d_utf7", true, "utf7Decode(String str)"));
         tags.add(new Tag(Tag.Category.Decode, "d_base32", true, "decode_base32(String str)"));
         tags.add(new Tag(Tag.Category.Decode, "d_base58", true, "decode_base58(String str)"));
         tags.add(new Tag(Tag.Category.Decode, "d_base64", true, "decode_base64(String str)"));
@@ -465,16 +454,23 @@ public class Hackvertor {
         tag.argument3 = new TagArgument("boolean", "false");
         tags.add(tag);
         tags.add(new Tag(Tag.Category.Variables, "get_variable1", false, "Special tag that lets you get a previously set variable. Change var to your own variable name."));
-        tag = new Tag(Tag.Category.Variables, "context_url", false, "context_url(String properties");
+        tag = new Tag(Tag.Category.Variables, "context_request", false, "context_request(String codeExecuteKey)");
+        tag.argument1 = new TagArgument("string", tagCodeExecutionKey);
+        tags.add(tag);
+        tag = new Tag(Tag.Category.Variables, "context_url", false, "context_url(String properties, String codeExecuteKey");
         tag.argument1 = new TagArgument("string", "$protocol $host $path $file $query $port");
+        tag.argument2 = new TagArgument("string", tagCodeExecutionKey);
         tags.add(tag);
-        tag = new Tag(Tag.Category.Variables, "context_body", false, "context_body()");
+        tag = new Tag(Tag.Category.Variables, "context_body", false, "context_body(String codeExecuteKey)");
+        tag.argument1 = new TagArgument("string", tagCodeExecutionKey);
         tags.add(tag);
-        tag = new Tag(Tag.Category.Variables, "context_header", false, "context_url(String headerName");
+        tag = new Tag(Tag.Category.Variables, "context_header", false, "context_url(String headerName, String codeExecuteKey");
         tag.argument1 = new TagArgument("string", "$headerName");
+        tag.argument2 = new TagArgument("string", tagCodeExecutionKey);
         tags.add(tag);
-        tag = new Tag(Tag.Category.Variables, "context_param", false, "context_url(String paramName");
+        tag = new Tag(Tag.Category.Variables, "context_param", false, "context_url(String paramName, String codeExecuteKey");
         tag.argument1 = new TagArgument("string", "$paramName");
+        tag.argument2 = new TagArgument("string", tagCodeExecutionKey);
         tags.add(tag);
         tag = new Tag(Tag.Category.Languages, "python", true, "python(String input, String code, String codeExecuteKey)");
         tag.argument1 = new TagArgument("string", "output = input.upper()");
@@ -498,6 +494,11 @@ public class Hackvertor {
         tag.argument3 = new TagArgument("string", tagCodeExecutionKey);
         tags.add(tag);
         tag = new Tag(Tag.Category.System, "read_url", true, "real_url(String url, String charset, String codeExecuteKey)");
+        tag.argument1 = new TagArgument("string", "UTF-8");
+        tag.argument2 = new TagArgument("boolean", "false");
+        tag.argument3 = new TagArgument("string", tagCodeExecutionKey);
+        tags.add(tag);
+        tag = new Tag(Tag.Category.System, "read_file", true, "read_file(String filepath, String charset, Boolean enabled, String codeExecuteKey)");
         tag.argument1 = new TagArgument("string", "UTF-8");
         tag.argument2 = new TagArgument("boolean", "false");
         tag.argument3 = new TagArgument("string", tagCodeExecutionKey);

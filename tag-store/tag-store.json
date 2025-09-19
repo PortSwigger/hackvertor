@@ -132,5 +132,40 @@
     "tagName": "email_utf7_decode",
     "author": "hackvertor",
     "numberOfArgs": 0
-  }
+  },
+  {
+    "description": "Makes a request through Burp",
+    "language": "Python",
+    "tagName": "read_url_burp",
+    "author": "hackvertor",
+    "numberOfArgs": 0
+  },
+  {
+   "description": "Escape a string so it can be included in a JSON string",
+   "language": "JavaScript",
+   "tagName": "JSON_string_escape",
+   "author": "noraj",
+   "numberOfArgs": 0
+  },
+  {
+   "description": "Unescape a JSON escaped string",
+   "language": "JavaScript",
+   "tagName": "JSON_string_unescape",
+   "author": "noraj",
+   "numberOfArgs": 0
+  },
+  {
+   "description": "zlib_compress",
+   "language": "Python",
+   "tagName": "zlib_compress",
+   "author": "mwalkowski",
+   "numberOfArgs": 0
+  },
+{
+   "description": "Convert JSON to x-www-form-urlencoded",
+   "language": "JavaScript",
+   "tagName": "json2form",
+   "author": "guusec",
+   "numberOfArgs": 0
+}
 ]
