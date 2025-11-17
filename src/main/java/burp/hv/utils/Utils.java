@@ -7,6 +7,7 @@ import burp.hv.tags.TagAutomator;
 import burp.hv.settings.Settings;
 import burp.hv.tags.TagStore;
 import burp.hv.Variables;
+import burp.hv.ui.HackvertorHistory;
 import burp.hv.ui.HackvertorInput;
 
 import javax.swing.*;
@@ -84,6 +85,7 @@ public class Utils {
         settings.registerBooleanSetting("learnFromRepeater", false, "Use AI to learn from repeater", "AI", "This is experimental. It will send your entire repeater requests to the AI in order to learn encodings. Are you sure you want to enable this?");
         settings.registerBooleanSetting("sortTagCategories", true, "Alphabetically sort tag categories", "Misc", null);
         settings.registerBooleanSetting("allowAutoConvertClipboard", false, "Auto convert clipboard","Misc", null);
+        settings.registerBooleanSetting("showOutputInMessageEditor", false, "Show the output panel in the message editor","Misc", null);
         settings.registerStringSetting("pythonModulePath", "", "Python module path","System");
     }
 

@@ -180,5 +180,52 @@
     "description": "Creates some dummy data using AI",
     "language": "AI",
     "tagName": "createDummyData"
+  },
+  {
+    "description": "Generates random chars based on a regex input e.g. [a-f]{4}",
+    "language": "Python",
+    "tagName": "randChrsBasedOnRegex",
+    "author": "hackvertor",
+    "numberOfArgs": 0
+  },
+  {
+    "description": "It accepts an input string containing gzip-compressed data encoded in base64, base64-decodes it to bytes, inflates it with gzip to recover the original raw bytes, then base64-encodes that result again into the output string.",
+    "language": "Python",
+    "tagName": "gzip_compress",
+    "author": "irsdl",
+    "numberOfArgs": 0
+  },
+  {
+    "description": "It takes an input string that is base64-encoded gzip data, base64-decodes it to raw gzip bytes, decompresses those bytes with gzip, and then base64-encodes the uncompressed result into the output string.",
+    "language": "Python",
+    "tagName": "gzip_decompress",
+    "author": "irsdl",
+    "numberOfArgs": 0
+  },
+  {
+    "description": "Pretty Print JSON",
+    "language": "JavaScript",
+    "tagName": "pretty_json",
+    "author": "Corey Arthur",
+    "numberOfArgs": 1,
+    "argument1Type": "Number",
+    "argument1": "spacing",
+    "argument1Default": "3",
+    "argument2": "notused",
+    "argument2Type": "String",
+    "argument2Default": ""
+  },
+  {
+    "argument1Default": "1.0",
+    "author": "hackvertor",
+    "argument1Type": "String",
+    "numberOfArgs": 1,
+    "argument1": "temperature",
+    "description": "This tag generates similar names to the input",
+    "language": "AI",
+    "tagName": "similarNames",
+    "argument2": "notused",
+    "argument2Type": "String",
+    "argument2Default": ""
   }
 ]

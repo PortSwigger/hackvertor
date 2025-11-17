@@ -2,12 +2,11 @@ package burp.hv;
 
 import bsh.EvalError;
 import bsh.Interpreter;
-import burp.IParameter;
-import burp.IRequestInfo;
-import burp.api.montoya.http.Http;
+import burp.api.montoya.core.ByteArray;
 import burp.api.montoya.http.message.HttpHeader;
 import burp.api.montoya.http.message.params.ParsedHttpParameter;
 import burp.api.montoya.http.message.requests.HttpRequest;
+import burp.api.montoya.utilities.CompressionType;
 import burp.hv.ai.AI;
 import burp.hv.settings.InvalidTypeSettingException;
 import burp.hv.settings.UnregisteredSettingException;
@@ -65,8 +64,6 @@ import org.unbescape.json.JsonEscape;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.*;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -122,7 +119,7 @@ public class Convertors {
     }
 
     public static Integer getInt(ArrayList<String> args, Integer pos) {
-        Integer output;
+        int output;
         if (args.size() < pos + 1) {
             return 0;
         }
@@ -142,7 +139,7 @@ public class Convertors {
         return output;
     }
 
-    public static String callTag(HashMap<String, String> variableMap, JSONArray customTags, String tag, String output, ArrayList<String> arguments, Hackvertor hackvertor) throws ParseException {
+    private static void updateTagCount(String tag) {
         boolean allowTagCount;
         try {
             allowTagCount = generalSettings.getBoolean("allowTagCount");
@@ -154,494 +151,489 @@ public class Convertors {
             int count = tagCount.get(tag) == null ? 0 : tagCount.get(tag);
             tagCount.put(tag, count + 1);
         }
-        for(int i=0;i<arguments.size();i++) {
-           arguments.set(i, weakConvert(variableMap, customTags, arguments.get(i), hackvertor));
+    }
+
+    private static void processArguments(ArrayList<String> arguments, HashMap<String, String> variableMap,
+                                        JSONArray customTags, Hackvertor hackvertor)  {
+        arguments.replaceAll(input -> weakConvert(variableMap, customTags, input, hackvertor));
+    }
+
+    private static String processFakeTag(String tag, ArrayList<String> arguments) {
+        return fake(tag, getString(arguments, 0), getString(arguments, 1));
+    }
+
+    private static String processCustomTag(String tag, String output, ArrayList<String> arguments,
+                                          HashMap<String, String> variableMap, JSONArray customTags,
+                                          Hackvertor hackvertor) throws ParseException {
+        for (int i = 0; i < customTags.length(); i++) {
+            JSONObject customTag = (JSONObject) customTags.get(i);
+            String customTagName = customTag.getString("tagName");
+            if(customTagName.equals(tag)) {
+                return executeCustomTag(customTag, output, arguments, variableMap, customTags, hackvertor);
+            }
         }
-        switch (tag) {
-            default:
-                if (tag.startsWith("fake_")) {
-                    return fake(tag, getString(arguments, 0), getString(arguments, 1));
-                } else if (tag.startsWith("_")) {
-                    for (int i = 0; i < customTags.length(); i++) {
-                        JSONObject customTag = (JSONObject) customTags.get(i);
-                        String customTagName = customTag.getString("tagName");
-                        if(customTagName.equals(tag)) {
-                            int numberOfArgs = 0;
-                            if (customTag.has("numberOfArgs")) {
-                                numberOfArgs = customTag.getInt("numberOfArgs");
-                            }
-                            String eKey;
-                            JSONObject customTagOptions = new JSONObject();
-                            customTagOptions.put("customTag", customTag);
-                            if (numberOfArgs == 0) {
-                                eKey = getString(arguments, 0);
-                                customTagOptions = null;
-                            } else if (numberOfArgs == 1) {
-                                if (customTag.getString("argument1Type").equals("String")) {
-                                    customTagOptions.put("param1", getString(arguments, 0));
-                                } else if (customTag.getString("argument1Type").equals("Number")) {
-                                    customTagOptions.put("param1", getInt(arguments, 0));
-                                }
-                                eKey = getString(arguments, 1);
+        return null;
+    }
 
-                            } else if (numberOfArgs == 2) {
-                                if (customTag.getString("argument1Type").equals("String")) {
-                                    customTagOptions.put("param1", getString(arguments, 0));
-                                } else if (customTag.getString("argument1Type").equals("Number")) {
-                                    customTagOptions.put("param1", getInt(arguments, 0));
-                                }
-                                if (customTag.getString("argument2Type").equals("String")) {
-                                    customTagOptions.put("param2", getString(arguments, 1));
-                                } else if (customTag.getString("argument2Type").equals("Number")) {
-                                    customTagOptions.put("param2", getInt(arguments, 1));
-                                }
-                                eKey = getString(arguments, 2);
-                            } else {
-                                eKey = getString(arguments, 0);
-                            }
-                            String language = customTag.getString("language").toLowerCase();
-                            String code = customTag.getString("code");
-                            if (language.equals("ai")) {
-                                return ai_tag(variableMap, output, code, eKey, customTagOptions, customTags, hackvertor, 1.0, false);
-                            } else if (language.equals("javascript")) {
-                                return javascript(variableMap, output, code, eKey, customTagOptions, customTags, hackvertor);
-                            } else if (language.equals("python")) {
-                                return python(variableMap, output, code, eKey, customTagOptions, customTags, hackvertor);
-                            } else if (language.equals("java")) {
-                                return java(variableMap, output, code, eKey, customTagOptions, customTags, hackvertor);
-                            } else if (language.equals("groovy")) {
-                                return groovy(variableMap, output, code, eKey, customTagOptions, customTags, hackvertor);
-                            }
-                            break;
-                        }
-                    }
-                }else if(tag.startsWith("set_")){ //Backwards compatibility with previous set_VARNAME tag format
-                    String varname = tag.replace("set_","");
-                    variableMap.put(varname, output);
-                    Boolean global = getBoolean(arguments, 0);
-                    if(global) {
-                        globalVariables.put(varname, output);
-                    }
-                    return output;
-                }else if(tag.startsWith("get_")){ //Backwards compatibility with previous get_VARNAME tag format
-                    String varname = tag.replace("get_","");
-                    if(globalVariables.containsKey(varname) && !variableMap.containsKey(varname)) {
-                        return globalVariables.getOrDefault(varname, StringUtils.isEmpty(output) ? null : output);
-                    }
-                    return variableMap.getOrDefault(varname, StringUtils.isEmpty(output) ? null : output);
-                } else {
-                    try {
-                        return charset_convert(output, "UTF-8", tag);
-                    } catch (UnsupportedEncodingException e) {
-                        //Not a valid tag. Check for old-style tag with _0 style ids.
-                        if(tag.matches(".*_\\d+$")) {
-                            String tagWithoutID = tag.replaceFirst("_\\d+$", "");
-                            try {
-                                return callTag(variableMap, customTags, tagWithoutID, output, arguments, null);
-                            } catch (ParseException e1) { }
-                        }
+    private static String executeCustomTag(JSONObject customTag, String output, ArrayList<String> arguments,
+                                          HashMap<String, String> variableMap, JSONArray customTags,
+                                          Hackvertor hackvertor) throws ParseException {
+        int numberOfArgs = customTag.has("numberOfArgs") ? customTag.getInt("numberOfArgs") : 0;
+        String eKey;
+        JSONObject customTagOptions = new JSONObject();
+        customTagOptions.put("customTag", customTag);
 
-                        throw new ParseException("Unsupported Tag \"" + tag + "\"");
-                    }
-                }
-                return output;
-            case "set":
-            case "set_var":
-            case "set_variable":
-                variableMap.put(getString(arguments, 0), output);
-                return output;
-            case "get":
-            case "get_var":
-            case "get_variable":
-                return variableMap.getOrDefault(getString(arguments,0), StringUtils.isEmpty(output) ? "UNDEFINED" : output);
-            case "increment_var":
-                return increment_var(globalVariables, getInt(arguments, 0), getString(arguments, 1), getBoolean(arguments, 2));
-            case "decrement_var":
-                return decrement_var(globalVariables, getInt(arguments, 0), getString(arguments, 1), getBoolean(arguments, 2));
-            case "context_request":
-                return context_request(getString(arguments, 0), hackvertor);
-            case "context_url":
-                return context_url(getString(arguments,0), getString(arguments,1), hackvertor);
-            case "context_header":
-                return context_header(getString(arguments,0), getString(arguments,1), hackvertor);
-            case "context_body":
-                return context_body(getString(arguments,0), hackvertor);
-            case "context_param":
-                return context_param(getString(arguments,0),getString(arguments,1), hackvertor);
-            case "charset_convert": {
+        if (numberOfArgs == 0) {
+            eKey = getString(arguments, 0);
+            customTagOptions = null;
+        } else if (numberOfArgs == 1) {
+            processCustomTagArgument(customTagOptions, customTag, arguments, 0, "param1", "argument1Type");
+            eKey = getString(arguments, 1);
+        } else if (numberOfArgs == 2) {
+            processCustomTagArgument(customTagOptions, customTag, arguments, 0, "param1", "argument1Type");
+            processCustomTagArgument(customTagOptions, customTag, arguments, 1, "param2", "argument2Type");
+            eKey = getString(arguments, 2);
+        } else {
+            eKey = getString(arguments, 0);
+        }
+
+        String language = customTag.getString("language").toLowerCase();
+        String code = customTag.getString("code");
+
+        return switch (language) {
+            case "ai" -> ai_tag(variableMap, output, code, eKey, customTagOptions, customTags, hackvertor, 1.0, false);
+            case "javascript" -> javascript(variableMap, output, code, eKey, customTagOptions, customTags, hackvertor);
+            case "python" -> python(variableMap, output, code, eKey, customTagOptions, customTags, hackvertor);
+            case "java" -> java(variableMap, output, code, eKey, customTagOptions, customTags, hackvertor);
+            case "groovy" -> groovy(variableMap, output, code, eKey, customTagOptions, customTags, hackvertor);
+            default -> throw new ParseException("Unsupported language for custom tag: " + language);
+        };
+    }
+
+    private static void processCustomTagArgument(JSONObject options, JSONObject customTag,
+                                                ArrayList<String> arguments, int argIndex,
+                                                String paramName, String typeKey) {
+        String argType = customTag.getString(typeKey);
+        if ("String".equals(argType)) {
+            options.put(paramName, getString(arguments, argIndex));
+        } else if ("Number".equals(argType)) {
+            options.put(paramName, getInt(arguments, argIndex));
+        }
+    }
+
+    private static String processLegacySetTag(String tag, String output, ArrayList<String> arguments,
+                                             HashMap<String, String> variableMap) {
+        String varname = tag.replace("set_", "");
+        variableMap.put(varname, output);
+        Boolean global = getBoolean(arguments, 0);
+        if(global) {
+            globalVariables.put(varname, output);
+        }
+        return output;
+    }
+
+    private static String processLegacyGetTag(String tag, String output, HashMap<String, String> variableMap) {
+        String varname = tag.replace("get_", "");
+        if(globalVariables.containsKey(varname) && !variableMap.containsKey(varname)) {
+            return globalVariables.getOrDefault(varname, StringUtils.isEmpty(output) ? null : output);
+        }
+        return variableMap.getOrDefault(varname, StringUtils.isEmpty(output) ? null : output);
+    }
+
+    private static String handleUnsupportedTag(String tag, String output, ArrayList<String> arguments,
+                                              HashMap<String, String> variableMap, JSONArray customTags) throws ParseException {
+        try {
+            return charset_convert(output, "UTF-8", tag);
+        } catch (UnsupportedEncodingException e) {
+            if(tag.matches(".*_\\d+$")) {
+                String tagWithoutID = tag.replaceFirst("_\\d+$", "");
                 try {
-                    return charset_convert(output, getString(arguments, 0), getString(arguments, 1));
-                } catch (UnsupportedEncodingException e) {
-                    throw new ParseException("Unsupported encoding \"" + e.getCause().getMessage() + "\"");
+                    return callTag(variableMap, customTags, tagWithoutID, output, arguments, null);
+                } catch (ParseException e1) {
+                    // Fall through to throw unsupported tag error
                 }
             }
-            case "d_utf7":
-                return utf7Decode(output);
-            case "utf7":
-                return utf7(output, getString(arguments, 0));
-            case "brotli_decompress":
-                return brotli_decompress(output);
-            case "gzip_compress":
-                return gzip_compress(output);
-            case "gzip_decompress":
-                return gzip_decompress(output);
-            case "bzip2_compress":
-                return bzip2_compress(output);
-            case "bzip2_decompress":
-                return bzip2_decompress(output);
-            case "saml":
-                return saml(output);
-            case "d_saml":
-                return d_saml(output);
-            case "deflate_compress":
-                return deflate_compress(output, getBoolean(arguments, 0));
-            case "deflate_decompress":
-                return deflate_decompress(output, getBoolean(arguments, 0));
-            case "timestamp":
-                return timestamp();
-            case "date":
-                return date(getString(arguments, 0), getString(arguments, 1));
-            case "html_entities":
-                return html_entities(output);
-            case "d_html_entities":
-                return decode_html_entities(output);
-            case "html5_entities":
-                return html5_entities(output);
-            case "hex":
-                return hex(output, getString(arguments, 0));
-            case "hex_entities":
-                return hex_entities(output);
-            case "hex_escapes":
-                return hex_escapes(output);
-            case "octal_escapes":
-                return octal_escapes(output);
-            case "php_non_alpha":
-                return php_non_alpha(output);
-            case "php_chr":
-                return php_chr(output);
-            case "sql_hex":
-                return sql_hex(output);
-            case "rotN":
-                return rotN(output, getInt(arguments, 0));
-            case "aes_encrypt":
-                return aes_encrypt(output, getString(arguments, 0), getString(arguments, 1), getString(arguments, 2));
-            case "aes_decrypt":
-                return aes_decrypt(output, getString(arguments, 0), getString(arguments, 1), getString(arguments, 2));
-            case "rotN_bruteforce":
-                return rotN_bruteforce(output);
-            case "xor":
-                return xor(output, getString(arguments, 0));
-            case "xor_decrypt":
-                return xor_decrypt(output, getInt(arguments, 0), false);
-            case "xor_getkey":
-                return xor_getkey(output);
-            case "affine_encrypt":
-                return affine_encrypt(output, getInt(arguments, 0), getInt(arguments, 1));
-            case "affine_decrypt":
-                return affine_decrypt(output, getInt(arguments, 0), getInt(arguments, 1));
-            case "atbash_encrypt":
-                return atbash_encrypt(output);
-            case "atbash_decrypt":
-                return atbash_decrypt(output);
-            case "rail_fence_encrypt":
-                return rail_fence_encrypt(output, getInt(arguments, 0));
-            case "rail_fence_decrypt":
-                return rail_fence_decrypt(output, getInt(arguments, 0));
-            case "substitution_encrypt":
-                return substitution_encrypt(output, getString(arguments, 0));
-            case "substitution_decrypt":
-                return substitution_decrypt(output, getString(arguments, 0));
-            case "jwt":
-                return jwt(output, getString(arguments, 0), getString(arguments, 1));
-            case "quoted_printable":
-                return quoted_printable(output);
-            case "powershell":
-                return powershell(output);
-            case "js_string":
-                return js_string(output);
-            case "unicode_alternatives":
-                return unicode_alternatives(output);
-            case "d_quoted_printable":
-                return d_quoted_printable(output);
-            case "auto_decode":
-                return auto_decode(output);
-            case "auto_decode_no_decrypt":
-                return auto_decode_no_decrypt(output);
-            case "d_octal_escapes":
-                return decode_octal_escapes(output);
-            case "css_escapes":
-                return css_escapes(output);
-            case "css_escapes6":
-                return css_escapes6(output);
-            case "dec_entities":
-                return dec_entities(output);
-            case "unicode_escapes":
-                return unicode_escapes(output);
-            case "d_unicode_escapes":
-                return decode_js_string(output);
-            case "d_jwt_get_payload":
-                return d_jwt_get_payload(output);
-            case "d_jwt_get_header":
-                return d_jwt_get_header(output);
-            case "d_jwt_verify":
-                return d_jwt_verify(output, getString(arguments, 0));
-            case "d_js_string":
-                return decode_js_string(output);
-            case "d_html5_entities":
-                return decode_html5_entities(output);
-            case "base32":
-                return base32_encode(output);
-            case "d_base32":
-                return decode_base32(output);
-            case "base58":
-                return base58_encode(output);
-            case "d_base58":
-                return decode_base58(output);
-            case "base64":
-                return base64Encode(output);
-            case "d_base64":
-                return decode_base64(output);
-            case "base64url":
-                return base64urlEncode(output);
-            case "d_base64url":
-                return decode_base64url(output);
-            case "json_parse":
-                return json_parse(output, getString(arguments, 0));
-            case "burp_urlencode":
-                return burp_urlencode(output);
-            case "urlencode":
-                return urlencode(output);
-            case "urlencode_not_plus":
-                return urlencode_not_plus(output);
-            case "urlencode_all":
-                return urlencode_all(output);
-            case "d_burp_url":
-                return burp_decode_url(output);
-            case "d_url":
-                return decode_url(output);
-            case "d_css_escapes":
-                return decode_css_escapes(output);
-            case "uppercase":
-                return uppercase(output);
-            case "lowercase":
-                return lowercase(output);
-            case "unique":
-                return unique(output);
-            case "space":
-                return " ";
-            case "newline":
-                return "\n";
-            case "remove_output":
-                return remove_output(output);
-            case "capitalise":
-                return capitalise(output);
-            case "uncapitalise":
-                return uncapitalise(output);
-            case "from_charcode":
-                return from_charcode(output);
-            case "to_charcode":
-                return to_charcode(output);
-            case "reverse":
-                return reverse(output);
-            case "length":
-                return len(output);
-            case "find":
-                return find(output, getString(arguments, 0), getInt(arguments, 1));
-            case "replace":
-                return replace(output, getString(arguments, 0), getString(arguments, 1));
-            case "regex_replace":
-                return regex_replace(output, getString(arguments, 0), getString(arguments, 1));
-            case "repeat":
-                return repeat(output, getInt(arguments, 0));
-            case "substring":
-                return substring(output, getInt(arguments, 0), getInt(arguments, 1));
-            case "split_join":
-                return split_join(output, getString(arguments, 0), getString(arguments, 1));
-            case "is_like_english":
-                return Double.toString(is_like_english(output));
-            case "index_of_coincidence":
-                return Double.toString(index_of_coincidence(output));
-            case "guess_key_length":
-                return Integer.toString(guess_key_length(output));
-            case "if_regex":
-                return if_regex(output, getString(arguments, 0), getString(arguments, 1));
-            case "if_not_regex":
-                return if_not_regex(output, getString(arguments, 0), getString(arguments, 1));
-            case "chunked_dec2hex":
-                return chunked_dec2hex(output);
-            case "dec2hex":
-                return dec2hex(output, getString(arguments, 0));
-            case "dec2oct":
-                return dec2oct(output, getString(arguments, 0));
-            case "dec2bin":
-                return dec2bin(output, getString(arguments, 0));
-            case "hex2dec":
-                return hex2dec(output, getString(arguments, 0));
-            case "oct2dec":
-                return oct2dec(output, getString(arguments, 0));
-            case "bin2dec":
-                return bin2dec(output, getString(arguments, 0));
-            case "ascii2bin":
-                return ascii2bin(output);
-            case "bin2ascii":
-                return bin2ascii(output);
-            case "hex2ascii":
-                return hex2ascii(output);
-            case "ascii2hex":
-                return ascii2hex(output, getString(arguments, 0));
-            case "ascii2reverse_hex":
-                return ascii2reverse_hex(output, getString(arguments, 0));
-            case "hmac_md5":
-                return hmacmd5(output, getString(arguments, 0));
-            case "hmac_sha1":
-                return hmacsha1(output, getString(arguments, 0));
-            case "hmac_sha224":
-                return hmacsha224(output, getString(arguments, 0));
-            case "hmac_sha256":
-                return hmacsha256(output, getString(arguments, 0));
-            case "hmac_sha384":
-                return hmacsha384(output, getString(arguments, 0));
-            case "hmac_sha512":
-                return hmacsha512(output, getString(arguments, 0));
-            case "sha1":
-                return sha1(output);
-            case "sha224":
-                return sha224(output);
-            case "sha256":
-                return sha256(output);
-            case "sha384":
-                return sha384(output);
-            case "sha512":
-                return sha512(output);
-            case "sha3":
-                return sha3(output);
-            case "sha3_224":
-                return sha3_224(output);
-            case "sha3_256":
-                return sha3_256(output);
-            case "sha3_384":
-                return sha3_384(output);
-            case "sha3_512":
-                return sha3_512(output);
-            case "skein_256_128":
-                return skein_256_128(output);
-            case "skein_256_160":
-                return skein_256_160(output);
-            case "skein_256_224":
-                return skein_256_224(output);
-            case "skein_256_256":
-                return skein_256_256(output);
-            case "skein_512_128":
-                return skein_512_128(output);
-            case "skein_512_160":
-                return skein_512_160(output);
-            case "skein_512_224":
-                return skein_512_224(output);
-            case "skein_512_256":
-                return skein_512_256(output);
-            case "skein_512_384":
-                return skein_512_384(output);
-            case "skein_512_512":
-                return skein_512_512(output);
-            case "skein_1024_384":
-                return skein_1024_384(output);
-            case "skein_1024_512":
-                return skein_1024_512(output);
-            case "skein_1024_1024":
-                return skein_1024_1024(output);
-            case "sm3":
-                return sm3(output);
-            case "tiger":
-                return tiger(output);
-            case "md2":
-                return md2(output);
-            case "md4":
-                return md4(output);
-            case "md5":
-                return md5(output);
-            case "gost3411":
-                return gost3411(output);
-            case "ripemd128":
-                return ripemd128(output);
-            case "ripemd160":
-                return ripemd160(output);
-            case "ripemd256":
-                return ripemd256(output);
-            case "ripemd320":
-                return ripemd320(output);
-            case "whirlpool":
-                return whirlpool(output);
-            case "random":
-                return random(output, getInt(arguments, 0), getBoolean(arguments, 1));
-            case "random_alpha_lower":
-                return random_alpha_lower(getInt(arguments, 0));
-            case "random_alphanum_lower":
-                return random_alphanum_lower(getInt(arguments, 0));
-            case "random_alpha_upper":
-                return random_alpha_upper(getInt(arguments, 0));
-            case "random_alphanum_upper":
-                return random_alphanum_upper(getInt(arguments, 0));
-            case "random_alpha_mixed":
-                return random_alpha_mixed(getInt(arguments, 0));
-            case "random_alphanum_mixed":
-                return random_alphanum_mixed(getInt(arguments, 0));
-            case "random_hex":
-                return random_hex(getInt(arguments, 0));
-            case "random_hex_mixed":
-                return random_hex_mixed(getInt(arguments, 0));
-            case "random_num":
-                return random_num(getInt(arguments, 0));
-            case "random_unicode":
-                return random_unicode(getInt(arguments, 0), getInt(arguments, 1), getInt(arguments, 2));
-            case "range":
-                return range(output, getInt(arguments, 0), getInt(arguments, 1), getInt(arguments, 2));
-            case "total":
-                return total(output);
-            case "arithmetic":
-                return arithmetic(output, getInt(arguments, 0), getString(arguments, 1), getString(arguments, 2));
-            case "convert_base":
-                return convert_base(output, getString(arguments, 0), getInt(arguments, 1), getInt(arguments, 2));
-            case "zeropad":
-                return zeropad(output, getString(arguments, 0), getInt(arguments, 1));
-            case "uuid":
-                return uuid();
-            case "behavior":
-                return behavior(output);
-            case "css_expression":
-                return css_expression(output);
-            case "datasrc":
-                return datasrc(output);
-            case "eval_fromcharcode":
-                return eval_fromcharcode(output);
-            case "iframe_data_url":
-                return iframe_data_url(output);
-            case "script_data":
-                return script_data(output);
-            case "uppercase_script":
-                return uppercase_script(output);
-            case "iframe_src_doc":
-                return iframe_src_doc(output);
-            case "template_eval":
-                return template_eval(output);
-            case "throw_eval":
-                return throw_eval(output);
-            case "python":
-                return python(variableMap, output, getString(arguments, 0), getString(arguments, 1), null, customTags, hackvertor);
-            case "javascript":
-                return javascript(variableMap, output, getString(arguments, 0), getString(arguments, 1), null, customTags, hackvertor);
-            case "java":
-                return java(variableMap, output, getString(arguments, 0), getString(arguments, 1), null, customTags, hackvertor);
-            case "groovy":
-                return groovy(variableMap, output, getString(arguments, 0), getString(arguments, 1), null, customTags, hackvertor);
-            case "ai":
-                return ai_tag(variableMap, output, getString(arguments, 1), getString(arguments, 2), null, customTags, hackvertor, Double.parseDouble(getString(arguments, 0)), false);
-            case "read_url":
-                return read_url(output, getString(arguments, 0), getBoolean(arguments, 1), getString(arguments, 2));
-            case "read_file":
-                return read_file(output, getString(arguments, 0), getBoolean(arguments, 1), getString(arguments, 2));
-            case "system":
-                return system(output, getBoolean(arguments, 0), getString(arguments, 1));
+            throw new ParseException("Unsupported Tag \"" + tag + "\"");
         }
+    }
+
+    @FunctionalInterface
+    private interface TagProcessor {
+        String process(String output, ArrayList<String> arguments, HashMap<String, String> variableMap,
+                      JSONArray customTags, Hackvertor hackvertor) throws ParseException;
+    }
+
+    private static final Map<String, TagProcessor> TAG_REGISTRY = new HashMap<>();
+
+    static {
+        initializeTagRegistry();
+    }
+
+    private static void initializeTagRegistry() {
+        // Variable operations
+        TAG_REGISTRY.put("set", (output, args, vars, custom, hv) -> {
+            vars.put(getString(args, 0), output);
+            return output;
+        });
+        TAG_REGISTRY.put("set_var", TAG_REGISTRY.get("set"));
+        TAG_REGISTRY.put("set_variable", TAG_REGISTRY.get("set"));
+
+        TAG_REGISTRY.put("get", (output, args, vars, custom, hv) ->
+            vars.getOrDefault(getString(args, 0), StringUtils.isEmpty(output) ? "UNDEFINED" : output));
+        TAG_REGISTRY.put("get_var", TAG_REGISTRY.get("get"));
+        TAG_REGISTRY.put("get_variable", TAG_REGISTRY.get("get"));
+
+        TAG_REGISTRY.put("increment_var", (output, args, vars, custom, hv) ->
+            increment_var(globalVariables, getInt(args, 0), getString(args, 1), getBoolean(args, 2)));
+        TAG_REGISTRY.put("decrement_var", (output, args, vars, custom, hv) ->
+            decrement_var(globalVariables, getInt(args, 0), getString(args, 1), getBoolean(args, 2)));
+
+        // Context operations
+        TAG_REGISTRY.put("context_request", (output, args, vars, custom, hv) ->
+            context_request(getString(args, 0), hv));
+        TAG_REGISTRY.put("context_url", (output, args, vars, custom, hv) ->
+            context_url(getString(args, 0), getString(args, 1), hv));
+        TAG_REGISTRY.put("context_header", (output, args, vars, custom, hv) ->
+            context_header(getString(args, 0), getString(args, 1), hv));
+        TAG_REGISTRY.put("context_body", (output, args, vars, custom, hv) ->
+            context_body(getString(args, 0), hv));
+        TAG_REGISTRY.put("context_param", (output, args, vars, custom, hv) ->
+            context_param(getString(args, 0), getString(args, 1), hv));
+
+        // Charset operations
+        TAG_REGISTRY.put("charset_convert", (output, args, vars, custom, hv) -> {
+            try {
+                return charset_convert(output, getString(args, 0), getString(args, 1));
+            } catch (UnsupportedEncodingException e) {
+                throw new ParseException("Unsupported encoding \"" + e.getCause().getMessage() + "\"");
+            }
+        });
+
+        // UTF-7 encoding
+        TAG_REGISTRY.put("d_utf7", (output, args, vars, custom, hv) -> utf7Decode(output));
+        TAG_REGISTRY.put("utf7", (output, args, vars, custom, hv) -> utf7(output, getString(args, 0)));
+
+        // Compression operations
+        TAG_REGISTRY.put("brotli_compress", (output, args, vars, custom, hv) -> brotli_compress(output));
+        TAG_REGISTRY.put("brotli_decompress", (output, args, vars, custom, hv) -> brotli_decompress(output));
+        TAG_REGISTRY.put("gzip_compress", (output, args, vars, custom, hv) -> gzip_compress(output));
+        TAG_REGISTRY.put("gzip_decompress", (output, args, vars, custom, hv) -> gzip_decompress(output));
+        TAG_REGISTRY.put("bzip2_compress", (output, args, vars, custom, hv) -> bzip2_compress(output));
+        TAG_REGISTRY.put("bzip2_decompress", (output, args, vars, custom, hv) -> bzip2_decompress(output));
+        TAG_REGISTRY.put("deflate_compress", (output, args, vars, custom, hv) ->
+            deflate_compress(output, getBoolean(args, 0)));
+        TAG_REGISTRY.put("deflate_decompress", (output, args, vars, custom, hv) ->
+            deflate_decompress(output, getBoolean(args, 0)));
+
+        // SAML operations
+        TAG_REGISTRY.put("saml", (output, args, vars, custom, hv) -> saml(output));
+        TAG_REGISTRY.put("d_saml", (output, args, vars, custom, hv) -> d_saml(output));
+
+        // Date/Time operations
+        TAG_REGISTRY.put("timestamp", (output, args, vars, custom, hv) -> timestamp());
+        TAG_REGISTRY.put("date", (output, args, vars, custom, hv) -> date(getString(args, 0), getString(args, 1)));
+
+        // HTML entities
+        TAG_REGISTRY.put("html_entities", (output, args, vars, custom, hv) -> html_entities(output));
+        TAG_REGISTRY.put("d_html_entities", (output, args, vars, custom, hv) -> decode_html_entities(output));
+        TAG_REGISTRY.put("html5_entities", (output, args, vars, custom, hv) -> html5_entities(output));
+        TAG_REGISTRY.put("d_html5_entities", (output, args, vars, custom, hv) -> decode_html5_entities(output));
+
+        // Hex operations
+        TAG_REGISTRY.put("hex", (output, args, vars, custom, hv) -> hex(output, getString(args, 0)));
+        TAG_REGISTRY.put("hex_entities", (output, args, vars, custom, hv) -> hex_entities(output));
+        TAG_REGISTRY.put("hex_escapes", (output, args, vars, custom, hv) -> hex_escapes(output));
+
+        // Escaping operations
+        TAG_REGISTRY.put("octal_escapes", (output, args, vars, custom, hv) -> octal_escapes(output));
+        TAG_REGISTRY.put("d_octal_escapes", (output, args, vars, custom, hv) -> decode_octal_escapes(output));
+        TAG_REGISTRY.put("css_escapes", (output, args, vars, custom, hv) -> css_escapes(output));
+        TAG_REGISTRY.put("css_escapes6", (output, args, vars, custom, hv) -> css_escapes6(output));
+        TAG_REGISTRY.put("d_css_escapes", (output, args, vars, custom, hv) -> decode_css_escapes(output));
+        TAG_REGISTRY.put("dec_entities", (output, args, vars, custom, hv) -> dec_entities(output));
+        TAG_REGISTRY.put("unicode_escapes", (output, args, vars, custom, hv) -> unicode_escapes(output));
+        TAG_REGISTRY.put("d_unicode_escapes", (output, args, vars, custom, hv) -> decode_js_string(output));
+        TAG_REGISTRY.put("unicode_alternatives", (output, args, vars, custom, hv) -> unicode_alternatives(output));
+
+        // PHP operations
+        TAG_REGISTRY.put("php_non_alpha", (output, args, vars, custom, hv) -> php_non_alpha(output));
+        TAG_REGISTRY.put("php_chr", (output, args, vars, custom, hv) -> php_chr(output));
+        TAG_REGISTRY.put("sql_hex", (output, args, vars, custom, hv) -> sql_hex(output));
+
+        // Classical ciphers
+        TAG_REGISTRY.put("rotN", (output, args, vars, custom, hv) -> rotN(output, getInt(args, 0)));
+        TAG_REGISTRY.put("rotN_bruteforce", (output, args, vars, custom, hv) -> rotN_bruteforce(output));
+        TAG_REGISTRY.put("xor", (output, args, vars, custom, hv) -> xor(output, getString(args, 0)));
+        TAG_REGISTRY.put("xor_decrypt", (output, args, vars, custom, hv) -> xor_decrypt(output, getInt(args, 0), false));
+        TAG_REGISTRY.put("xor_getkey", (output, args, vars, custom, hv) -> xor_getkey(output));
+        TAG_REGISTRY.put("affine_encrypt", (output, args, vars, custom, hv) ->
+            affine_encrypt(output, getInt(args, 0), getInt(args, 1)));
+        TAG_REGISTRY.put("affine_decrypt", (output, args, vars, custom, hv) ->
+            affine_decrypt(output, getInt(args, 0), getInt(args, 1)));
+        TAG_REGISTRY.put("atbash_encrypt", (output, args, vars, custom, hv) -> atbash_encrypt(output));
+        TAG_REGISTRY.put("atbash_decrypt", (output, args, vars, custom, hv) -> atbash_decrypt(output));
+        TAG_REGISTRY.put("rail_fence_encrypt", (output, args, vars, custom, hv) ->
+            rail_fence_encrypt(output, getInt(args, 0)));
+        TAG_REGISTRY.put("rail_fence_decrypt", (output, args, vars, custom, hv) ->
+            rail_fence_decrypt(output, getInt(args, 0)));
+        TAG_REGISTRY.put("substitution_encrypt", (output, args, vars, custom, hv) ->
+            substitution_encrypt(output, getString(args, 0)));
+        TAG_REGISTRY.put("substitution_decrypt", (output, args, vars, custom, hv) ->
+            substitution_decrypt(output, getString(args, 0)));
+
+        // AES operations
+        TAG_REGISTRY.put("aes_encrypt", (output, args, vars, custom, hv) ->
+            aes_encrypt(output, getString(args, 0), getString(args, 1), getString(args, 2)));
+        TAG_REGISTRY.put("aes_decrypt", (output, args, vars, custom, hv) ->
+            aes_decrypt(output, getString(args, 0), getString(args, 1), getString(args, 2)));
+
+        // JWT operations
+        TAG_REGISTRY.put("jwt", (output, args, vars, custom, hv) ->
+            jwt(output, getString(args, 0), getString(args, 1)));
+        TAG_REGISTRY.put("d_jwt_get_payload", (output, args, vars, custom, hv) -> d_jwt_get_payload(output));
+        TAG_REGISTRY.put("d_jwt_get_header", (output, args, vars, custom, hv) -> d_jwt_get_header(output));
+        TAG_REGISTRY.put("d_jwt_verify", (output, args, vars, custom, hv) ->
+            d_jwt_verify(output, getString(args, 0)));
+
+        // String encoding operations
+        TAG_REGISTRY.put("quoted_printable", (output, args, vars, custom, hv) -> quoted_printable(output));
+        TAG_REGISTRY.put("d_quoted_printable", (output, args, vars, custom, hv) -> d_quoted_printable(output));
+        TAG_REGISTRY.put("powershell", (output, args, vars, custom, hv) -> powershell(output));
+        TAG_REGISTRY.put("js_string", (output, args, vars, custom, hv) -> js_string(output));
+        TAG_REGISTRY.put("d_js_string", (output, args, vars, custom, hv) -> decode_js_string(output));
+
+        // Auto decode operations
+        TAG_REGISTRY.put("auto_decode", (output, args, vars, custom, hv) -> auto_decode(output));
+        TAG_REGISTRY.put("auto_decode_no_decrypt", (output, args, vars, custom, hv) -> auto_decode_no_decrypt(output));
+
+        // Base encoding operations
+        TAG_REGISTRY.put("base32", (output, args, vars, custom, hv) -> base32_encode(output));
+        TAG_REGISTRY.put("d_base32", (output, args, vars, custom, hv) -> decode_base32(output));
+        TAG_REGISTRY.put("base58", (output, args, vars, custom, hv) -> base58_encode(output));
+        TAG_REGISTRY.put("d_base58", (output, args, vars, custom, hv) -> decode_base58(output));
+        TAG_REGISTRY.put("base64", (output, args, vars, custom, hv) -> base64Encode(output));
+        TAG_REGISTRY.put("d_base64", (output, args, vars, custom, hv) -> decode_base64(output));
+        TAG_REGISTRY.put("base64url", (output, args, vars, custom, hv) -> base64urlEncode(output));
+        TAG_REGISTRY.put("d_base64url", (output, args, vars, custom, hv) -> decode_base64url(output));
+
+        // JSON operations
+        TAG_REGISTRY.put("json_parse", (output, args, vars, custom, hv) ->
+            json_parse(output, getString(args, 0)));
+
+        // URL encoding operations
+        TAG_REGISTRY.put("burp_urlencode", (output, args, vars, custom, hv) -> burp_urlencode(output));
+        TAG_REGISTRY.put("urlencode", (output, args, vars, custom, hv) -> urlencode(output));
+        TAG_REGISTRY.put("urlencode_not_plus", (output, args, vars, custom, hv) -> urlencode_not_plus(output));
+        TAG_REGISTRY.put("urlencode_all", (output, args, vars, custom, hv) -> urlencode_all(output));
+        TAG_REGISTRY.put("d_burp_url", (output, args, vars, custom, hv) -> burp_decode_url(output));
+        TAG_REGISTRY.put("d_url", (output, args, vars, custom, hv) -> decode_url(output));
+
+        // String operations
+        TAG_REGISTRY.put("uppercase", (output, args, vars, custom, hv) -> uppercase(output));
+        TAG_REGISTRY.put("lowercase", (output, args, vars, custom, hv) -> lowercase(output));
+        TAG_REGISTRY.put("capitalise", (output, args, vars, custom, hv) -> capitalise(output));
+        TAG_REGISTRY.put("uncapitalise", (output, args, vars, custom, hv) -> uncapitalise(output));
+        TAG_REGISTRY.put("reverse", (output, args, vars, custom, hv) -> reverse(output));
+        TAG_REGISTRY.put("unique", (output, args, vars, custom, hv) -> unique(output));
+        TAG_REGISTRY.put("space", (output, args, vars, custom, hv) -> " ");
+        TAG_REGISTRY.put("newline", (output, args, vars, custom, hv) -> "\n");
+        TAG_REGISTRY.put("remove_output", (output, args, vars, custom, hv) -> remove_output());
+        TAG_REGISTRY.put("from_charcode", (output, args, vars, custom, hv) -> from_charcode(output));
+        TAG_REGISTRY.put("to_charcode", (output, args, vars, custom, hv) -> to_charcode(output));
+        TAG_REGISTRY.put("length", (output, args, vars, custom, hv) -> len(output));
+
+        // String search and replace
+        TAG_REGISTRY.put("find", (output, args, vars, custom, hv) ->
+            find(output, getString(args, 0), getInt(args, 1)));
+        TAG_REGISTRY.put("replace", (output, args, vars, custom, hv) ->
+            replace(output, getString(args, 0), getString(args, 1)));
+        TAG_REGISTRY.put("regex_replace", (output, args, vars, custom, hv) ->
+            regex_replace(output, getString(args, 0), getString(args, 1)));
+        TAG_REGISTRY.put("repeat", (output, args, vars, custom, hv) -> repeat(output, getInt(args, 0)));
+        TAG_REGISTRY.put("substring", (output, args, vars, custom, hv) ->
+            substring(output, getInt(args, 0), getInt(args, 1)));
+        TAG_REGISTRY.put("split_join", (output, args, vars, custom, hv) ->
+            split_join(output, getString(args, 0), getString(args, 1)));
+
+        // Analysis operations
+        TAG_REGISTRY.put("is_like_english", (output, args, vars, custom, hv) ->
+            Double.toString(is_like_english(output)));
+        TAG_REGISTRY.put("index_of_coincidence", (output, args, vars, custom, hv) ->
+            Double.toString(index_of_coincidence(output)));
+        TAG_REGISTRY.put("guess_key_length", (output, args, vars, custom, hv) ->
+            Integer.toString(guess_key_length(output)));
+
+        // Conditional operations
+        TAG_REGISTRY.put("if_regex", (output, args, vars, custom, hv) ->
+            if_regex(output, getString(args, 0), getString(args, 1)));
+        TAG_REGISTRY.put("if_not_regex", (output, args, vars, custom, hv) ->
+            if_not_regex(output, getString(args, 0), getString(args, 1)));
+
+        // Number conversion operations
+        TAG_REGISTRY.put("chunked_dec2hex", (output, args, vars, custom, hv) -> chunked_dec2hex(output));
+        TAG_REGISTRY.put("dec2hex", (output, args, vars, custom, hv) -> dec2hex(output, getString(args, 0)));
+        TAG_REGISTRY.put("dec2oct", (output, args, vars, custom, hv) -> dec2oct(output, getString(args, 0)));
+        TAG_REGISTRY.put("dec2bin", (output, args, vars, custom, hv) -> dec2bin(output, getString(args, 0)));
+        TAG_REGISTRY.put("hex2dec", (output, args, vars, custom, hv) -> hex2dec(output, getString(args, 0)));
+        TAG_REGISTRY.put("oct2dec", (output, args, vars, custom, hv) -> oct2dec(output, getString(args, 0)));
+        TAG_REGISTRY.put("bin2dec", (output, args, vars, custom, hv) -> bin2dec(output, getString(args, 0)));
+        TAG_REGISTRY.put("ascii2bin", (output, args, vars, custom, hv) -> ascii2bin(output));
+        TAG_REGISTRY.put("bin2ascii", (output, args, vars, custom, hv) -> bin2ascii(output));
+        TAG_REGISTRY.put("hex2ascii", (output, args, vars, custom, hv) -> hex2ascii(output));
+        TAG_REGISTRY.put("ascii2hex", (output, args, vars, custom, hv) -> ascii2hex(output, getString(args, 0)));
+        TAG_REGISTRY.put("ascii2reverse_hex", (output, args, vars, custom, hv) ->
+            ascii2reverse_hex(output, getString(args, 0)));
+
+        // HMAC operations
+        TAG_REGISTRY.put("hmac_md5", (output, args, vars, custom, hv) -> hmacmd5(output, getString(args, 0)));
+        TAG_REGISTRY.put("hmac_sha1", (output, args, vars, custom, hv) -> hmacsha1(output, getString(args, 0)));
+        TAG_REGISTRY.put("hmac_sha224", (output, args, vars, custom, hv) -> hmacsha224(output, getString(args, 0)));
+        TAG_REGISTRY.put("hmac_sha256", (output, args, vars, custom, hv) -> hmacsha256(output, getString(args, 0)));
+        TAG_REGISTRY.put("hmac_sha384", (output, args, vars, custom, hv) -> hmacsha384(output, getString(args, 0)));
+        TAG_REGISTRY.put("hmac_sha512", (output, args, vars, custom, hv) -> hmacsha512(output, getString(args, 0)));
+
+        // Hash operations
+        TAG_REGISTRY.put("sha1", (output, args, vars, custom, hv) -> sha1(output));
+        TAG_REGISTRY.put("sha224", (output, args, vars, custom, hv) -> sha224(output));
+        TAG_REGISTRY.put("sha256", (output, args, vars, custom, hv) -> sha256(output));
+        TAG_REGISTRY.put("sha384", (output, args, vars, custom, hv) -> sha384(output));
+        TAG_REGISTRY.put("sha512", (output, args, vars, custom, hv) -> sha512(output));
+        TAG_REGISTRY.put("sha3", (output, args, vars, custom, hv) -> sha3(output));
+        TAG_REGISTRY.put("sha3_224", (output, args, vars, custom, hv) -> sha3_224(output));
+        TAG_REGISTRY.put("sha3_256", (output, args, vars, custom, hv) -> sha3_256(output));
+        TAG_REGISTRY.put("sha3_384", (output, args, vars, custom, hv) -> sha3_384(output));
+        TAG_REGISTRY.put("sha3_512", (output, args, vars, custom, hv) -> sha3_512(output));
+        TAG_REGISTRY.put("md2", (output, args, vars, custom, hv) -> md2(output));
+        TAG_REGISTRY.put("md4", (output, args, vars, custom, hv) -> md4(output));
+        TAG_REGISTRY.put("md5", (output, args, vars, custom, hv) -> md5(output));
+        TAG_REGISTRY.put("tiger", (output, args, vars, custom, hv) -> tiger(output));
+        TAG_REGISTRY.put("whirlpool", (output, args, vars, custom, hv) -> whirlpool(output));
+        TAG_REGISTRY.put("gost3411", (output, args, vars, custom, hv) -> gost3411(output));
+        TAG_REGISTRY.put("sm3", (output, args, vars, custom, hv) -> sm3(output));
+        TAG_REGISTRY.put("ripemd128", (output, args, vars, custom, hv) -> ripemd128(output));
+        TAG_REGISTRY.put("ripemd160", (output, args, vars, custom, hv) -> ripemd160(output));
+        TAG_REGISTRY.put("ripemd256", (output, args, vars, custom, hv) -> ripemd256(output));
+        TAG_REGISTRY.put("ripemd320", (output, args, vars, custom, hv) -> ripemd320(output));
+
+        // Skein hash operations
+        TAG_REGISTRY.put("skein_256_128", (output, args, vars, custom, hv) -> skein_256_128(output));
+        TAG_REGISTRY.put("skein_256_160", (output, args, vars, custom, hv) -> skein_256_160(output));
+        TAG_REGISTRY.put("skein_256_224", (output, args, vars, custom, hv) -> skein_256_224(output));
+        TAG_REGISTRY.put("skein_256_256", (output, args, vars, custom, hv) -> skein_256_256(output));
+        TAG_REGISTRY.put("skein_512_128", (output, args, vars, custom, hv) -> skein_512_128(output));
+        TAG_REGISTRY.put("skein_512_160", (output, args, vars, custom, hv) -> skein_512_160(output));
+        TAG_REGISTRY.put("skein_512_224", (output, args, vars, custom, hv) -> skein_512_224(output));
+        TAG_REGISTRY.put("skein_512_256", (output, args, vars, custom, hv) -> skein_512_256(output));
+        TAG_REGISTRY.put("skein_512_384", (output, args, vars, custom, hv) -> skein_512_384(output));
+        TAG_REGISTRY.put("skein_512_512", (output, args, vars, custom, hv) -> skein_512_512(output));
+        TAG_REGISTRY.put("skein_1024_384", (output, args, vars, custom, hv) -> skein_1024_384(output));
+        TAG_REGISTRY.put("skein_1024_512", (output, args, vars, custom, hv) -> skein_1024_512(output));
+        TAG_REGISTRY.put("skein_1024_1024", (output, args, vars, custom, hv) -> skein_1024_1024(output));
+
+        // Random operations
+        TAG_REGISTRY.put("random", (output, args, vars, custom, hv) ->
+            random(output, getInt(args, 0), getBoolean(args, 1)));
+        TAG_REGISTRY.put("random_alpha_lower", (output, args, vars, custom, hv) ->
+            random_alpha_lower(getInt(args, 0)));
+        TAG_REGISTRY.put("random_alphanum_lower", (output, args, vars, custom, hv) ->
+            random_alphanum_lower(getInt(args, 0)));
+        TAG_REGISTRY.put("random_alpha_upper", (output, args, vars, custom, hv) ->
+            random_alpha_upper(getInt(args, 0)));
+        TAG_REGISTRY.put("random_alphanum_upper", (output, args, vars, custom, hv) ->
+            random_alphanum_upper(getInt(args, 0)));
+        TAG_REGISTRY.put("random_alpha_mixed", (output, args, vars, custom, hv) ->
+            random_alpha_mixed(getInt(args, 0)));
+        TAG_REGISTRY.put("random_alphanum_mixed", (output, args, vars, custom, hv) ->
+            random_alphanum_mixed(getInt(args, 0)));
+        TAG_REGISTRY.put("random_hex", (output, args, vars, custom, hv) -> random_hex(getInt(args, 0)));
+        TAG_REGISTRY.put("random_hex_mixed", (output, args, vars, custom, hv) ->
+            random_hex_mixed(getInt(args, 0)));
+        TAG_REGISTRY.put("random_num", (output, args, vars, custom, hv) -> random_num(getInt(args, 0)));
+        TAG_REGISTRY.put("random_unicode", (output, args, vars, custom, hv) ->
+            random_unicode(getInt(args, 0), getInt(args, 1), getInt(args, 2)));
+
+        // Math operations
+        TAG_REGISTRY.put("range", (output, args, vars, custom, hv) ->
+            range(output, getInt(args, 0), getInt(args, 1), getInt(args, 2)));
+        TAG_REGISTRY.put("total", (output, args, vars, custom, hv) -> total(output));
+        TAG_REGISTRY.put("arithmetic", (output, args, vars, custom, hv) ->
+            arithmetic(output, getInt(args, 0), getString(args, 1), getString(args, 2)));
+        TAG_REGISTRY.put("convert_base", (output, args, vars, custom, hv) ->
+            convert_base(output, getString(args, 0), getInt(args, 1), getInt(args, 2)));
+        TAG_REGISTRY.put("zeropad", (output, args, vars, custom, hv) ->
+            zeropad(output, getString(args, 0), getInt(args, 1)));
+        TAG_REGISTRY.put("uuid", (output, args, vars, custom, hv) -> uuid());
+
+        // XSS payload operations
+        TAG_REGISTRY.put("behavior", (output, args, vars, custom, hv) -> behavior(output));
+        TAG_REGISTRY.put("css_expression", (output, args, vars, custom, hv) -> css_expression(output));
+        TAG_REGISTRY.put("datasrc", (output, args, vars, custom, hv) -> datasrc(output));
+        TAG_REGISTRY.put("eval_fromcharcode", (output, args, vars, custom, hv) -> eval_fromcharcode(output));
+        TAG_REGISTRY.put("iframe_data_url", (output, args, vars, custom, hv) -> iframe_data_url(output));
+        TAG_REGISTRY.put("script_data", (output, args, vars, custom, hv) -> script_data(output));
+        TAG_REGISTRY.put("uppercase_script", (output, args, vars, custom, hv) -> uppercase_script(output));
+        TAG_REGISTRY.put("iframe_src_doc", (output, args, vars, custom, hv) -> iframe_src_doc(output));
+        TAG_REGISTRY.put("template_eval", (output, args, vars, custom, hv) -> template_eval(output));
+        TAG_REGISTRY.put("throw_eval", (output, args, vars, custom, hv) -> throw_eval(output));
+
+        // Script execution operations
+        TAG_REGISTRY.put("python", (output, args, vars, custom, hv) ->
+            python(vars, output, getString(args, 0), getString(args, 1), null, custom, hv));
+        TAG_REGISTRY.put("javascript", (output, args, vars, custom, hv) ->
+            javascript(vars, output, getString(args, 0), getString(args, 1), null, custom, hv));
+        TAG_REGISTRY.put("java", (output, args, vars, custom, hv) ->
+            java(vars, output, getString(args, 0), getString(args, 1), null, custom, hv));
+        TAG_REGISTRY.put("groovy", (output, args, vars, custom, hv) ->
+            groovy(vars, output, getString(args, 0), getString(args, 1), null, custom, hv));
+        TAG_REGISTRY.put("ai", (output, args, vars, custom, hv) ->
+            ai_tag(vars, output, getString(args, 1), getString(args, 2), null, custom, hv,
+                   Double.parseDouble(getString(args, 0)), false));
+
+        // System operations
+        TAG_REGISTRY.put("read_url", (output, args, vars, custom, hv) ->
+            read_url(output, getString(args, 0), getBoolean(args, 1), getString(args, 2)));
+        TAG_REGISTRY.put("read_file", (output, args, vars, custom, hv) ->
+            read_file(output, getString(args, 0), getBoolean(args, 1), getString(args, 2)));
+        TAG_REGISTRY.put("system", (output, args, vars, custom, hv) ->
+            system(output, getBoolean(args, 0), getString(args, 1)));
+    }
+
+    public static String callTag(HashMap<String, String> variableMap, JSONArray customTags, String tag, String output, ArrayList<String> arguments, Hackvertor hackvertor) throws ParseException {
+        // Update tag count if enabled
+        updateTagCount(tag);
+
+        // Process arguments recursively
+        processArguments(arguments, variableMap, customTags, hackvertor);
+
+        // First check if the tag is in the registry
+        TagProcessor processor = TAG_REGISTRY.get(tag);
+        if (processor != null) {
+            return processor.process(output, arguments, variableMap, customTags, hackvertor);
+        }
+
+        // Handle special case tags that are not in the registry
+        // Handle fake_ tags
+        if (tag.startsWith("fake_")) {
+            return processFakeTag(tag, arguments);
+        }
+        // Handle custom tags (starting with _)
+        else if (tag.startsWith("_")) {
+            String result = processCustomTag(tag, output, arguments, variableMap, customTags, hackvertor);
+            if (result != null) {
+                return result;
+            }
+        }
+        // Handle legacy set_ tags (but not set_var or set_variable which are in the registry)
+        else if(tag.startsWith("set_")) {
+            return processLegacySetTag(tag, output, arguments, variableMap);
+        }
+        // Handle legacy get_ tags (but not get_var or get_variable which are in the registry)
+        else if(tag.startsWith("get_")) {
+            return processLegacyGetTag(tag, output, variableMap);
+        }
+
+        // Handle unsupported tags or charset conversion fallback
+        return handleUnsupportedTag(tag, output, arguments, variableMap, customTags);
     }
 
     public static String[] generateTagStartEnd(Tag tagObj) {
@@ -694,24 +686,13 @@ public class Convertors {
         }
     }
 
-    /**
-     * Recursive conversion, ensuring tags are properly matched.
-     * Does not treat mismatched tags as text. Will throw an error instead.
-     * @param variables
-     * @param customTags
-     * @param textBuffer
-     * @param stack
-     * @param elements
-     * @return
-     * @throws ParseException
-     */
     private static String strictConvert(HashMap<String, String> variables,
                                         JSONArray customTags,
                                         String textBuffer,
                                         Stack<Element.StartTag> stack,
                                         Queue<Element> elements, Hackvertor hackvertor) throws ParseException{
-        if(elements.size() == 0) {
-            if(stack.size() > 0){
+        if(elements.isEmpty()) {
+            if(!stack.isEmpty()){
                 String error = String.format("Unclosed tag%s - %s",stack.size()>1?"s":"",
                         stack.stream().map(Element.StartTag::getIdentifier).collect(Collectors.joining()));
                 throw new ParseException(error);
@@ -723,16 +704,14 @@ public class Convertors {
         Element element = elements.remove();
         if(element instanceof Element.TextElement){ //Text element, add it to our textBuffer
             textBuffer+= ((Element.TextElement) element).getContent();
-        }else if(element instanceof Element.SelfClosingTag){ //Self closing tag. Just add its output to textbuffer.
-            Element.SelfClosingTag selfClosingTag = (Element.SelfClosingTag) element;
+        }else if(element instanceof Element.SelfClosingTag selfClosingTag){ //Self closing tag. Just add its output to textbuffer.
             String tagOutput = callTag(variables, customTags, selfClosingTag.getIdentifier(), "", selfClosingTag.getArguments(), hackvertor);
             textBuffer+= tagOutput;
         }else if(element instanceof Element.StartTag){ //Start of a conversion.
             stack.push((Element.StartTag) element);
             textBuffer+= strictConvert(variables, customTags, "", stack, elements, hackvertor);
-        }else if(element instanceof Element.EndTag){ //End of a conversion. Convert and update textbuffer.
+        }else if(element instanceof Element.EndTag endTag){ //End of a conversion. Convert and update textbuffer.
             Element.StartTag startTag;
-            Element.EndTag endTag = (Element.EndTag) element;
             try {
                 startTag = stack.pop();
             }catch (EmptyStackException e){
@@ -748,14 +727,6 @@ public class Convertors {
         return strictConvert(variables, customTags, textBuffer, stack, elements, hackvertor);
     }
 
-    /**
-     * Process all variable setting tags in a list of tokens, and update the variables map with their values
-     * @param variables The map of variables and their values
-     * @param customTags Any custom tags to be processed
-     * @param elements A list of lexical tokens
-     * @return
-     * @throws ParseException
-     */
     private static Queue<Element> weakConvertPreProcessSetTags(HashMap<String, String> variables,
                                                                JSONArray customTags,
                                                                Queue<Element> elements) throws ParseException{
@@ -763,8 +734,7 @@ public class Convertors {
         Iterator<Element> iter = elements.iterator();
         while(iter.hasNext()) {
             Element element = iter.next();
-            if (element instanceof Element.StartTag) {
-                Element.StartTag startSetTag = (Element.StartTag) element;
+            if (element instanceof Element.StartTag startSetTag) {
                 if (startSetTag.getIdentifier().equalsIgnoreCase("set")
                         || startSetTag.getIdentifier().startsWith("set_")) {
                     //We're processing the contents of a set tag.
@@ -796,21 +766,12 @@ public class Convertors {
         return elementQueue;
     }
 
-    /**
-     * @param variables
-     * @param customTags
-     * @param stack
-     * @param elements
-     * @param hackvertor
-     * @return
-     * @throws ParseException
-     */
     private static String weakConvert(HashMap<String, String> variables,
                                       JSONArray customTags,
                                       Stack<Element> stack,
                                       Queue<Element> elements, Hackvertor hackvertor) throws ParseException{
 
-        if(elements.size() == 0) {
+        if(elements.isEmpty()) {
             StringBuilder sb = new StringBuilder();
             while(!stack.empty()){
                 sb.insert(0, stack.pop());
@@ -822,20 +783,18 @@ public class Convertors {
         Element element = elements.remove();
         if(element instanceof Element.TextElement){ //Text element, add it to our stack
             stack.push((element));
-        }else if(element instanceof Element.SelfClosingTag){ //Self closing tag. Add its output as a TextElement to our stack.
-            Element.SelfClosingTag selfClosingTag = (Element.SelfClosingTag) element;
+        }else if(element instanceof Element.SelfClosingTag selfClosingTag){ //Self closing tag. Add its output as a TextElement to our stack.
             String tagOutput = callTag(variables, customTags, selfClosingTag.getIdentifier(), "", selfClosingTag.getArguments(), hackvertor);
             stack.push(new Element.TextElement(tagOutput));
         }else if(element instanceof Element.StartTag){ //Start of a conversion.
             Stack<Element> newStackContext = new Stack<>();
             newStackContext.push(element);
             stack.push(new Element.TextElement(weakConvert(variables, customTags, newStackContext, elements, hackvertor)));
-        }else if(element instanceof Element.EndTag){ //End of a conversion. Convert and update textbuffer.
+        }else if(element instanceof Element.EndTag endTag){ //End of a conversion. Convert and update textbuffer.
             Stack<Element> siftStack = new Stack<>();
 
             try {
                 Element startTag = stack.pop();
-                Element.EndTag endTag = (Element.EndTag) element;
 
                 //Look through our stack until we find the matching opening tag, and add interim items to a processing stack
                 while (!(startTag instanceof Element.StartTag) || !((Element.StartTag) startTag).getIdentifier().equalsIgnoreCase(endTag.getIdentifier())){
@@ -866,7 +825,6 @@ public class Convertors {
 
 
     static String convertCharset(String input, String to) {
-        String output = "";
         try {
             return helpers.bytesToString(input.getBytes(to));
         } catch (UnsupportedEncodingException e) {
@@ -957,7 +915,7 @@ public class Convertors {
         if(!enabled) {
           return "This tag is disabled until you enable it in the tag params to prevent unintentional variable declaration.";
         }
-        int value = 0;
+        int value;
         if(variableMap.containsKey(variableName)) {
             value = Integer.parseInt(variableMap.get(variableName));
         } else {
@@ -972,7 +930,7 @@ public class Convertors {
         if(!enabled) {
           return "This tag is disabled until you enable it in the tag params to prevent unintentional variable declaration.";
         }
-        int value = 0;
+        int value;
         if(variableMap.containsKey(variableName)) {
             value = Integer.parseInt(variableMap.get(variableName));
         } else {
@@ -994,12 +952,10 @@ public class Convertors {
             Object value = currentObject.get(currentKey);
             if (value instanceof JSONObject) {
                 properties = recursiveTraverse(nextKey, (JSONObject) value, properties);
-            } else if (value instanceof JSONArray) {
-                JSONArray array = (JSONArray) value;
+            } else if (value instanceof JSONArray array) {
                 for (int i = 0; i < array.length(); i++) {
                     Object object = array.get(i);
-                    if (object instanceof JSONObject) {
-                        JSONObject jsonObject = (JSONObject) object;
+                    if (object instanceof JSONObject jsonObject) {
                         properties = recursiveTraverse(nextKey + "." + i, jsonObject, properties);
                     } else {
                         properties = properties.replace("$"+nextKey, object.toString());
@@ -1026,7 +982,7 @@ public class Convertors {
             // Check if character should be excluded from encoding (and is ASCII)
             if (pattern != null && pattern.matcher(String.valueOf(c)).matches() && c < 128) {
                 // If we have accumulated characters to encode, encode them first
-                if (toEncode.length() > 0) {
+                if (!toEncode.isEmpty()) {
                     encodeUtf7Block(toEncode.toString(), output);
                     toEncode.setLength(0);
                 }
@@ -1043,7 +999,7 @@ public class Convertors {
         }
         
         // Encode any remaining characters
-        if (toEncode.length() > 0) {
+        if (!toEncode.isEmpty()) {
             encodeUtf7Block(toEncode.toString(), output);
         }
         
@@ -1053,7 +1009,7 @@ public class Convertors {
     private static void encodeUtf7Block(String text, StringBuilder output) {
         try {
             // Convert to UTF-16BE bytes for proper UTF-7 encoding
-            byte[] utf16Bytes = text.getBytes("UTF-16BE");
+            byte[] utf16Bytes = text.getBytes(StandardCharsets.UTF_16BE);
             // Base64 encode and remove padding
             String base64 = helpers.base64Encode(utf16Bytes).replaceAll("=+$", "");
             // UTF-7 uses modified base64 (but we keep / as standard UTF-7)
@@ -1083,14 +1039,12 @@ public class Convertors {
                         endIndex = input.length();
                     }
                     if (endIndex > i + 1) {
-                        String base64Part = input.substring(i + 1, endIndex);
-                        base64Part = base64Part.replace(',', '/');
+                        StringBuilder base64Part = new StringBuilder(input.substring(i + 1, endIndex));
+                        base64Part = new StringBuilder(base64Part.toString().replace(',', '/'));
                         int padding = (4 - base64Part.length() % 4) % 4;
-                        for (int p = 0; p < padding; p++) {
-                            base64Part += "=";
-                        }
+                        base64Part.append("=".repeat(padding));
                         try {
-                            byte[] bytes = helpers.base64Decode(base64Part);
+                            byte[] bytes = helpers.base64Decode(base64Part.toString());
                             for (int b = 0; b < bytes.length - 1; b += 2) {
                                 int high = bytes[b] & 0xFF;
                                 int low = bytes[b + 1] & 0xFF;
@@ -1098,7 +1052,7 @@ public class Convertors {
                                 output.append(decodedChar);
                             }
                         } catch (Exception e) {
-                            output.append(input.substring(i, Math.min(endIndex + 1, input.length())));
+                            output.append(input, i, Math.min(endIndex + 1, input.length()));
                         }
                     }
                     i = endIndex;
@@ -1123,17 +1077,29 @@ public class Convertors {
     }
 
     static String brotli_decompress(String str) {
+        // Use Montoya API if available
+        if (HackvertorExtension.montoyaApi != null) {
+            try {
+                byte[] input = readUniBytes(str);
+                ByteArray decompressed = HackvertorExtension.montoyaApi.utilities().compressionUtils()
+                        .decompress(ByteArray.byteArray(input), CompressionType.BROTLI);
+                return new String(decompressed.getBytes());
+            } catch (Exception e) {
+                return "Error decompressing Brotli: " + e.toString();
+            }
+        }
+        // Fallback to legacy implementation for tests
         byte[] buffer = new byte[65536];
         ByteArrayInputStream input = new ByteArrayInputStream(readUniBytes(str));
         ByteArrayOutputStream output = new ByteArrayOutputStream();
-        BrotliInputStream brotliInput = null;
+        BrotliInputStream brotliInput;
         try {
             brotliInput = new BrotliInputStream(input);
         } catch (IOException e) {
             return e.toString();
         }
         while (true) {
-            int len = 0;
+            int len;
             try {
                 len = brotliInput.read(buffer, 0, buffer.length);
             } catch (IOException e) {
@@ -1152,9 +1118,37 @@ public class Convertors {
         return output.toString();
     }
 
+    static String brotli_compress(String str) {
+        // Use Montoya API if available
+        if (HackvertorExtension.montoyaApi != null) {
+            try {
+                byte[] input = str.getBytes();
+                ByteArray compressed = HackvertorExtension.montoyaApi.utilities().compressionUtils()
+                        .compress(ByteArray.byteArray(input), CompressionType.BROTLI);
+                return helpers.bytesToString(compressed.getBytes());
+            } catch (Exception e) {
+                return "Error compressing Brotli: " + e.toString();
+            }
+        }
+        // Fallback - no legacy implementation for brotli_compress
+        return "Error: Brotli compression requires Burp Suite Montoya API";
+    }
+
     static String gzip_compress(String input) {
+        // Use Montoya API if available
+        if (HackvertorExtension.montoyaApi != null) {
+            try {
+                byte[] inputBytes = input.getBytes();
+                ByteArray compressed = HackvertorExtension.montoyaApi.utilities().compressionUtils()
+                        .compress(ByteArray.byteArray(inputBytes), CompressionType.GZIP);
+                return helpers.bytesToString(compressed.getBytes());
+            } catch (Exception e) {
+                return "Error compressing GZIP: " + e.toString();
+            }
+        }
+        // Fallback to legacy implementation for tests
         ByteArrayOutputStream bos = new ByteArrayOutputStream(input.length());
-        GZIPOutputStream gzip = null;
+        GZIPOutputStream gzip;
         try {
             gzip = new GZIPOutputStream(bos);
             gzip.write(input.getBytes());
@@ -1163,34 +1157,43 @@ public class Convertors {
             bos.close();
             return helpers.bytesToString(compressed);
         } catch (IOException e) {
-            e.printStackTrace();
-            return "Error:" + e.toString();
+            return "Error:" + e;
         }
     }
 
     static String gzip_decompress(String input) {
+        // Use Montoya API if available
+        if (HackvertorExtension.montoyaApi != null) {
+            try {
+                byte[] inputBytes = helpers.stringToBytes(input);
+                ByteArray decompressed = HackvertorExtension.montoyaApi.utilities().compressionUtils()
+                        .decompress(ByteArray.byteArray(inputBytes), CompressionType.GZIP);
+                return new String(decompressed.getBytes());
+            } catch (Exception e) {
+                return "Error decompressing GZIP: " + e.toString();
+            }
+        }
+        // Fallback to legacy implementation for tests
         ByteArrayInputStream bis = new ByteArrayInputStream(helpers.stringToBytes(input));
-        GZIPInputStream gis = null;
+        GZIPInputStream gis;
         byte[] bytes;
         try {
             gis = new GZIPInputStream(bis);
             bytes = IOUtils.toByteArray(gis);
             return new String(bytes);
         } catch (IOException e) {
-            e.printStackTrace();
-            return "Error:" + e.toString();
+            return "Error:" + e;
         }
     }
 
     static String bzip2_compress(String input) {
         ByteArrayOutputStream bos = new ByteArrayOutputStream(input.length());
-        CompressorOutputStream cos = null;
+        CompressorOutputStream cos;
         try {
             cos = new CompressorStreamFactory()
                     .createCompressorOutputStream(CompressorStreamFactory.getBzip2(), bos);
         } catch (CompressorException e) {
-            e.printStackTrace();
-            return "Error creating compressor:" + e.toString();
+            return "Error creating compressor:" + e;
         }
         try {
             cos.write(input.getBytes());
@@ -1199,28 +1202,38 @@ public class Convertors {
             bos.close();
             return helpers.bytesToString(compressed);
         } catch (IOException e) {
-            e.printStackTrace();
-            return "Error:" + e.toString();
+            return "Error:" + e;
         }
     }
 
     static String bzip2_decompress(String input) {
         ByteArrayInputStream bis = new ByteArrayInputStream(helpers.stringToBytes(input));
-        BZip2CompressorInputStream cis = null;
+        BZip2CompressorInputStream cis;
         byte[] bytes;
         try {
             cis = new BZip2CompressorInputStream(bis);
             bytes = IOUtils.toByteArray(cis);
             return new String(bytes);
         } catch (IOException e) {
-            e.printStackTrace();
-            return "Error:" + e.toString();
+            return "Error:" + e;
         }
     }
 
     static String deflate_compress(String input, Boolean includeHeader) {
+        // Use Montoya API if available
+        if (HackvertorExtension.montoyaApi != null) {
+            try {
+                byte[] inputBytes = input.getBytes();
+                ByteArray compressed = HackvertorExtension.montoyaApi.utilities().compressionUtils()
+                        .compress(ByteArray.byteArray(inputBytes), CompressionType.DEFLATE);
+                return helpers.bytesToString(compressed.getBytes());
+            } catch (Exception e) {
+                return "Error compressing DEFLATE: " + e.toString();
+            }
+        }
+        // Fallback to legacy implementation for tests
         ByteArrayOutputStream bos = new ByteArrayOutputStream(input.length());
-        CompressorOutputStream cos = null;
+        CompressorOutputStream cos;
         DeflateParameters params = new DeflateParameters();
         params.setWithZlibHeader(includeHeader);
         cos = new DeflateCompressorOutputStream(bos, params);
@@ -1231,14 +1244,25 @@ public class Convertors {
             bos.close();
             return helpers.bytesToString(compressed);
         } catch (IOException e) {
-            e.printStackTrace();
             return "Error:" + e;
         }
     }
 
     static String deflate_decompress(String input, Boolean includeHeader) {
+        // Use Montoya API if available
+        if (HackvertorExtension.montoyaApi != null) {
+            try {
+                byte[] inputBytes = helpers.stringToBytes(input);
+                ByteArray decompressed = HackvertorExtension.montoyaApi.utilities().compressionUtils()
+                        .decompress(ByteArray.byteArray(inputBytes), CompressionType.DEFLATE);
+                return new String(decompressed.getBytes());
+            } catch (Exception e) {
+                return "Error decompressing DEFLATE: " + e.toString();
+            }
+        }
+        // Fallback to legacy implementation for tests
         ByteArrayInputStream bis = new ByteArrayInputStream(helpers.stringToBytes(input));
-        DeflateCompressorInputStream cis = null;
+        DeflateCompressorInputStream cis;
         byte[] bytes;
         try {
             DeflateParameters params = new DeflateParameters();
@@ -1249,7 +1273,6 @@ public class Convertors {
             bis.close();
             return new String(bytes);
         } catch (IOException e) {
-            e.printStackTrace();
             return "Error:" + e;
         }
     }
@@ -1348,7 +1371,7 @@ public class Convertors {
 
     static String urlencode(String str) {
         try {
-            str = URLEncoder.encode(str, "UTF-8");
+            str = URLEncoder.encode(str, StandardCharsets.UTF_8);
         } catch (Exception e) {
             stderr.println(e.getMessage());
         }
@@ -1357,7 +1380,7 @@ public class Convertors {
 
     static String urlencode_not_plus(String str) {
         try {
-            str = URLEncoder.encode(str, "UTF-8").replaceAll("\\+", "%20");
+            str = URLEncoder.encode(str, StandardCharsets.UTF_8).replaceAll("\\+", "%20");
         } catch (Exception e) {
             stderr.println(e.getMessage());
         }
@@ -1369,10 +1392,10 @@ public class Convertors {
         for (int i = 0; i < str.length(); i++) {
             int codePoint = Character.codePointAt(str, i);
             if (codePoint <= 0x7f) {
-                converted.append("%" + String.format("%02X", codePoint));
+                converted.append("%").append(String.format("%02X", codePoint));
             } else {
                 try {
-                    converted.append(URLEncoder.encode(Character.toString(str.charAt(i)), "UTF-8"));
+                    converted.append(URLEncoder.encode(Character.toString(str.charAt(i)), StandardCharsets.UTF_8));
                 } catch (Exception e) {
                     stderr.println(e.getMessage());
                 }
@@ -1388,7 +1411,7 @@ public class Convertors {
 
     static String decode_url(String str) {
         try {
-            str = URLDecoder.decode(str, "UTF-8");
+            str = URLDecoder.decode(str, StandardCharsets.UTF_8);
         } catch (Exception e) {
             stderr.println(e.getMessage());
         }
@@ -1433,12 +1456,12 @@ public class Convertors {
 
     static String random(String chars, int len, Boolean everyCharacterOnce) {
         Set<Character> usedChars = chars.chars().mapToObj(e->(char)e).collect(Collectors.toSet());
-        if (len > 0 && chars.length() > 0) {
+        if (len > 0 && !chars.isEmpty()) {
             StringBuilder sb = new StringBuilder();
             Random random = new Random();
             int i = 0;
             while(i < len) {
-                if(everyCharacterOnce && usedChars.size() > 0) {
+                if(everyCharacterOnce && !usedChars.isEmpty()) {
                     char chr = usedChars.stream().skip(new Random().nextInt(usedChars.size())).findFirst().orElse(null);
                     sb.append(chr);
                     usedChars.remove(chr);
@@ -1455,14 +1478,14 @@ public class Convertors {
     }
 
     static String random_unicode(int from, int to, int amount) {
-        String out = "";
+        StringBuilder out = new StringBuilder();
         try {
             for (int i = 0; i < amount; i++) {
                 Random random = new Random();
                 int n = random.nextInt(to) + from;
-                out += (char) n;
+                out.append((char) n);
             }
-            return out;
+            return out.toString();
         } catch (Exception e) {
             return "Unable to create unicode characters";
         }
@@ -1481,12 +1504,12 @@ public class Convertors {
     }
 
     static String unique(String str) {
-        String words[] = str.split(" ");
+        String[] words = str.split(" ");
         Set result = new HashSet(Arrays.asList(words));
         return String.join(" ", result);
     }
 
-    static String remove_output(String input) {
+    static String remove_output() {
         return "";
     }
     static String capitalise(String str) {
@@ -1521,18 +1544,16 @@ public class Convertors {
         try {
             algo = algo.toUpperCase();
             String algoName;
-            if (algo.equals("HS256")) {
-                algoName = "HmacSHA256";
-            } else if (algo.equals("HS384")) {
-                algoName = "HmacSHA384";
-            } else if (algo.equals("HS512")) {
-                algoName = "HmacSHA512";
-            } else if (algo.equals("NONE")) {
-                algoName = "none";
-            } else {
-                return "Unsupported algorithm";
+            switch (algo) {
+                case "HS256" -> algoName = "HmacSHA256";
+                case "HS384" -> algoName = "HmacSHA384";
+                case "HS512" -> algoName = "HmacSHA512";
+                case "NONE" -> algoName = "none";
+                default -> {
+                    return "Unsupported algorithm";
+                }
             }
-            String message = "";
+            String message;
             // Build header JSON manually to ensure consistent field order (alg before typ)
             String headerJsonStr = "{\"alg\":\"" + algo + "\",\"typ\":\"JWT\"}";
             JSONObject payloadJson = new JSONObject(payload);
@@ -1587,22 +1608,19 @@ public class Convertors {
         }
         try {
             String algo = jwt.getAlgorithm().toUpperCase();
-            Algorithm algorithm = null;
-            if (algo.equals("HS256")) {
-                algorithm = Algorithm.HMAC256(secret);
-            } else if (algo.equals("HS384")) {
-                algorithm = Algorithm.HMAC384(secret);
-            } else if (algo.equals("HS512")) {
-                algorithm = Algorithm.HMAC512(secret);
-            } else {
-                return "0";
+            Algorithm algorithm;
+            switch (algo) {
+                case "HS256" -> algorithm = Algorithm.HMAC256(secret);
+                case "HS384" -> algorithm = Algorithm.HMAC384(secret);
+                case "HS512" -> algorithm = Algorithm.HMAC512(secret);
+                default -> {
+                    return "0";
+                }
             }
             JWTVerifier verifier = JWT.require(algorithm)
                     .build();
             verifier.verify(token);
             return "1";
-        } catch (IllegalArgumentException e) {
-            return "0";
         } catch (Exception exception) {
             return "0";
         }
@@ -1615,7 +1633,7 @@ public class Convertors {
     static String octal_escapes(String str) {
         StringBuilder converted = new StringBuilder();
         for (int i = 0; i < str.length(); i++) {
-            converted.append("\\" + Integer.toOctalString(Character.codePointAt(str, i)));
+            converted.append("\\").append(Integer.toOctalString(Character.codePointAt(str, i)));
         }
         return converted.toString();
     }
@@ -1641,7 +1659,7 @@ public class Convertors {
         try {
             return codec.encode(str);
         } catch (EncoderException e) {
-            return "Error encoding:"+e.toString();
+            return "Error encoding:"+ e;
         }
     }
 
@@ -1693,49 +1711,49 @@ public class Convertors {
         try {
             return codec.decode(str);
         } catch (DecoderException e) {
-            return "Error decoding:"+e.toString();
+            return "Error decoding:"+ e;
         }
     }
     static String php_non_alpha(String input) {
-        String converted = "";
-        converted += "$_[]++;$_[]=$_._;";
-        converted += "$_____=$_[(++$__[])][(++$__[])+(++$__[])+(++$__[])];";
-        converted += "$_=$_[$_[+_]];";
-        converted += "$___=$__=$_[++$__[]];";
-        converted += "$____=$_=$_[+_];";
-        converted += "$_++;$_++;$_++;";
-        converted += "$_=$____.++$___.$___.++$_.$__.++$___;";
-        converted += "$__=$_;";
-        converted += "$_=$_____;";
-        converted += "$_++;$_++;$_++;$_++;$_++;$_++;$_++;$_++;$_++;$_++;";
-        converted += "$___=+_;";
-        converted += "$___.=$__;";
-        converted += "$___=++$_^$___[+_];$\u00c0=+_;$\u00c1=$\u00c2=$\u00c3=$\u00c4=$\u00c6=$\u00c8=$\u00c9=$\u00ca=$\u00cb=++$\u00c1[];";
-        converted += "$\u00c2++;";
-        converted += "$\u00c3++;$\u00c3++;";
-        converted += "$\u00c4++;$\u00c4++;$\u00c4++;";
-        converted += "$\u00c6++;$\u00c6++;$\u00c6++;$\u00c6++;";
-        converted += "$\u00c8++;$\u00c8++;$\u00c8++;$\u00c8++;$\u00c8++;";
-        converted += "$\u00c9++;$\u00c9++;$\u00c9++;$\u00c9++;$\u00c9++;$\u00c9++;";
-        converted += "$\u00ca++;$\u00ca++;$\u00ca++;$\u00ca++;$\u00ca++;$\u00ca++;$\u00ca++;";
-        converted += "$\u00cb++;$\u00cb++;$\u00cb++;$\u00cb++;$\u00cb++;$\u00cb++;$\u00cb++;";
-        converted += "$__('$_=\"'";
-        String[] lookup = {"\u00c0", "\u00c1", "\u00c2", "\u00c3", "\u00c4", "\u00c6", "\u00c8", "\u00c9", "\u00ca", "\u00cb"};
+        StringBuilder converted = new StringBuilder();
+        converted.append("$_[]++;$_[]=$_._;");
+        converted.append("$_____=$_[(++$__[])][(++$__[])+(++$__[])+(++$__[])];");
+        converted.append("$_=$_[$_[+_]];");
+        converted.append("$___=$__=$_[++$__[]];");
+        converted.append("$____=$_=$_[+_];");
+        converted.append("$_++;$_++;$_++;");
+        converted.append("$_=$____.++$___.$___.++$_.$__.++$___;");
+        converted.append("$__=$_;");
+        converted.append("$_=$_____;");
+        converted.append("$_++;$_++;$_++;$_++;$_++;$_++;$_++;$_++;$_++;$_++;");
+        converted.append("$___=+_;");
+        converted.append("$___.=$__;");
+        converted.append("$___=++$_^$___[+_];$À=+_;$Á=$Â=$Ã=$Ä=$Æ=$È=$É=$Ê=$Ë=++$Á[];");
+        converted.append("$Â++;");
+        converted.append("$Ã++;$Ã++;");
+        converted.append("$Ä++;$Ä++;$Ä++;");
+        converted.append("$Æ++;$Æ++;$Æ++;$Æ++;");
+        converted.append("$È++;$È++;$È++;$È++;$È++;");
+        converted.append("$É++;$É++;$É++;$É++;$É++;$É++;");
+        converted.append("$Ê++;$Ê++;$Ê++;$Ê++;$Ê++;$Ê++;$Ê++;");
+        converted.append("$Ë++;$Ë++;$Ë++;$Ë++;$Ë++;$Ë++;$Ë++;");
+        converted.append("$__('$_=\"'");
+        String[] lookup = {"À", "Á", "Â", "Ã", "Ä", "Æ", "È", "É", "Ê", "Ë"};
         for (int i = 0; i < input.length(); i++) {
-            ArrayList<String> vars = new ArrayList<String>();
-            String chrs = Integer.toOctalString(Character.codePointAt(input, i)).toString();
+            ArrayList<String> vars = new ArrayList<>();
+            String chrs = Integer.toOctalString(Character.codePointAt(input, i));
             for (int j = 0; j < chrs.length(); j++) {
                 vars.add("$" + lookup[Integer.parseInt(chrs.charAt(j) + "")]);
             }
-            converted += ".$___." + StringUtils.join(vars, ".");
+            converted.append(".$___.").append(StringUtils.join(vars, "."));
         }
-        converted += ".'";
-        converted += "\"');$__($_);";
+        converted.append(".'");
+        converted.append("\"');$__($_);");
         return "<?php " + converted + "?>";
     }
 
     static String php_chr(String str) {
-        ArrayList<String> output = new ArrayList<String>();
+        ArrayList<String> output = new ArrayList<>();
         for (int i = 0; i < str.length(); i++) {
             output.add("chr(" + Character.codePointAt(str, i) + ")");
         }
@@ -1747,33 +1765,32 @@ public class Convertors {
     }
 
     static String rotN(String str, int n) {
-        String out = "";
+        StringBuilder out = new StringBuilder();
         int len = str.length();
         for (int i = 0; i < len; i++) {
             char chr = str.charAt(i);
-            int chrCode = (int) chr;
             if (Character.isLowerCase(chr)) {
-                out += (char) ((chrCode - 97 + n) % 26 + 97);
+                out.append((char) (((int) chr - 97 + n) % 26 + 97));
             } else if (Character.isUpperCase(str.charAt(i))) {
-                out += (char) ((chrCode - 65 + n) % 26 + 65);
+                out.append((char) (((int) chr - 65 + n) % 26 + 65));
             } else {
-                out += chr;
+                out.append(chr);
             }
         }
-        return out;
+        return out.toString();
     }
 
     static String aes_encrypt(String plaintext, String key, String transformations, String iv) {
         try {
             return AES.encrypt(plaintext, key, transformations, iv);
         } catch (NoSuchAlgorithmException e) {
-            return "No such algorithm exception:" + e.toString();
+            return "No such algorithm exception:" + e;
         } catch (UnsupportedEncodingException e) {
-            return "Unsupported encoding exception:" + e.toString();
+            return "Unsupported encoding exception:" + e;
         } catch (IllegalArgumentException e) {
-            return "Invalid key length" + e.toString();
+            return "Invalid key length" + e;
         } catch (Exception e) {
-            return "Error exception:" + e.toString();
+            return "Error exception:" + e;
         }
     }
 
@@ -1781,13 +1798,13 @@ public class Convertors {
         try {
             return AES.decrypt(ciphertext, key, transformations, iv);
         } catch (NoSuchAlgorithmException e) {
-            return "No such algorithm exception:" + e.toString();
+            return "No such algorithm exception:" + e;
         } catch (UnsupportedEncodingException e) {
-            return "Unsupported encoding exception:" + e.toString();
+            return "Unsupported encoding exception:" + e;
         } catch (IllegalArgumentException e) {
-            return "Invalid key length" + e.toString();
+            return "Invalid key length" + e;
         } catch (Exception e) {
-            return "Error exception:" + e.toString();
+            return "Error exception:" + e;
         }
     }
 
@@ -1807,8 +1824,8 @@ public class Convertors {
 
     static int guess_key_length(String ciphertext) {
         int max = 30;
-        TreeMap<Integer, Double> totalIC = new TreeMap<Integer, Double>();
-        TreeMap<Integer, Double> normalizedIC = new TreeMap<Integer, Double>();
+        TreeMap<Integer, Double> totalIC = new TreeMap<>();
+        TreeMap<Integer, Double> normalizedIC = new TreeMap<>();
         for (int candidateLength = 2; candidateLength <= max; candidateLength++) {
             double[][] frequencies = new double[256][max + 1];
             for (int pos = 0; pos < ciphertext.length(); pos++) {
@@ -1868,7 +1885,7 @@ public class Convertors {
 
     static int getScore(char clearTextByte) {
         int score = 0;
-        if (clearTextByte >= ' ' && clearTextByte < '\u00ff') {
+        if (clearTextByte >= ' ' && clearTextByte < 'ÿ') {
             score += 1;
         }
         if ((clearTextByte >= 'A') && (clearTextByte <= 'Z')) {
@@ -1929,8 +1946,7 @@ public class Convertors {
                 int keypos = pos % keyLength;
                 char chr = ciphertext.charAt(pos);
                 ArrayList<Character> potentialKeyChars = potentialKeys.get(keypos);
-                for (int j = 0; j < potentialKeyChars.size(); j++) {
-                    char potentialChr = potentialKeyChars.get(j);
+                for (char potentialChr : potentialKeyChars) {
                     char clearTextByte = (char) (chr ^ potentialChr);
                     if ((clearTextByte >= 'A' && clearTextByte <= 'Z') || (clearTextByte >= 'a' && clearTextByte <= 'z') || clearTextByte == ' ') {
 
@@ -1942,9 +1958,9 @@ public class Convertors {
             for (int i = 0; i < keyLength; i++) {
                 ArrayList<Character> pKeys = potentialKeys.get(i);
                 ArrayList<Character> blacklist = blacklistChars.get(i);
-                for (int j = 0; j < pKeys.size(); j++) {
-                    if (!blacklist.contains(pKeys.get(j)) && filteredKeys.get(i).size() < 10) {
-                        filteredKeys.get(i).add(pKeys.get(j));
+                for (Character pKey : pKeys) {
+                    if (!blacklist.contains(pKey) && filteredKeys.get(i).size() < 10) {
+                        filteredKeys.get(i).add(pKey);
                     }
                 }
             }
@@ -1973,7 +1989,7 @@ public class Convertors {
             keyPermutations.add(key);
             return;
         }
-        if (charCandidates.get(l).size() == 0) {
+        if (charCandidates.get(l).isEmpty()) {
             doOneChar(key + guessedKey[l], l + 1, charCandidates, keyPermutations, guessedKey);
         } else {
             for (char c : charCandidates.get(l)) {
@@ -1990,11 +2006,11 @@ public class Convertors {
     static String affine_encrypt(String message, int key1, int key2) {
         int[] keyArray1 = {1, 3, 5, 7, 9, 11, 15, 17, 19, 21, 23, 25};
         int[] keyArray2 = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25};
-        String encoded = "";
-        if (!IntStream.of(keyArray1).anyMatch(x -> x == key1)) {
+        StringBuilder encoded = new StringBuilder();
+        if (IntStream.of(keyArray1).noneMatch(x -> x == key1)) {
             return "Invalid key1 must be one of:1,3,5,7,9,11,15,17,19,21,23,25";
         }
-        if (!IntStream.of(keyArray2).anyMatch(x -> x == key2)) {
+        if (IntStream.of(keyArray2).noneMatch(x -> x == key2)) {
             return "Invalid key2 must be one of:0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25";
         }
         message = message.toLowerCase();
@@ -2003,22 +2019,22 @@ public class Convertors {
             if (Character.isLowerCase(chr)) {
                 int chrCode = Character.codePointAt(message, i) - 97;
                 int newChrCode = ((key1 * chrCode + key2) % 26) + 97;
-                encoded += (char) newChrCode;
+                encoded.append((char) newChrCode);
             } else {
-                encoded += chr;
+                encoded.append(chr);
             }
         }
-        return encoded;
+        return encoded.toString();
     }
 
     static String affine_decrypt(String ciphertext, int key1, int key2) {
         int[] keyArray1 = {1, 3, 5, 7, 9, 11, 15, 17, 19, 21, 23, 25};
         int[] keyArray2 = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25};
-        String plaintext = "";
-        if (!IntStream.of(keyArray1).anyMatch(x -> x == key1)) {
+        StringBuilder plaintext = new StringBuilder();
+        if (IntStream.of(keyArray1).noneMatch(x -> x == key1)) {
             return "Invalid key1 must be one of:1,3,5,7,9,11,15,17,19,21,23,25";
         }
-        if (!IntStream.of(keyArray2).anyMatch(x -> x == key2)) {
+        if (IntStream.of(keyArray2).noneMatch(x -> x == key2)) {
             return "Invalid key2 must be one of:0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25";
         }
         int multinverse = 1;
@@ -2032,12 +2048,12 @@ public class Convertors {
             if (Character.isLowerCase(chr)) {
                 int chrCode = Character.codePointAt(ciphertext, i) - 97;
                 int newChrCode = ((multinverse * (chrCode + 26 - key2)) % 26) + 97;
-                plaintext += (char) newChrCode;
+                plaintext.append((char) newChrCode);
             } else {
-                plaintext += chr;
+                plaintext.append(chr);
             }
         }
-        return plaintext;
+        return plaintext.toString();
     }
 
     static String atbash_encrypt(String message) {
@@ -2075,34 +2091,34 @@ public class Convertors {
     }
 
     static String rotN_bruteforce(String str) {
-        String out = "";
+        StringBuilder out = new StringBuilder();
         for (int i = 1; i <= 25; i++) {
-            out += i + "=" + rotN(str, i) + "\n";
+            out.append(i).append("=").append(rotN(str, i)).append("\n");
         }
-        return out;
+        return out.toString();
     }
 
     static String rail_fence_encrypt(String message, int key) {
-        String ciphertext = "";
+        StringBuilder ciphertext = new StringBuilder();
         message = message.toLowerCase().replaceAll("[^a-z]", "");
         if (key < 1) {
             return "";
         }
-        if (message.length() < 1) {
+        if (message.isEmpty()) {
             return "";
         }
-        if (key > Math.floor(2 * message.length() - 1)) {
+        if (key > (double) (2 * message.length() - 1)) {
             return "Error: key is too large for plaintext length";
         }
         if (key == 1) {
             return message;
         } else {
-            int line = 0;
+            int line;
             for (line = 0; line < key - 1; line++) {
                 int skip = 2 * (key - line - 1);
                 int j = 0;
                 for (int i = line; i < message.length(); ) {
-                    ciphertext += message.charAt(i);
+                    ciphertext.append(message.charAt(i));
                     if ((line == 0) || (j % 2 == 0)) {
                         i += skip;
                     } else {
@@ -2112,23 +2128,23 @@ public class Convertors {
                 }
             }
             for (int i = line; i < message.length(); i += 2 * (key - 1)) {
-                ciphertext += message.charAt(i);
+                ciphertext.append(message.charAt(i));
             }
-            return ciphertext;
+            return ciphertext.toString();
         }
 
     }
 
     static String rail_fence_decrypt(String encoded, int key) {
-        String plaintext = "";
+        String plaintext;
         encoded = encoded.toLowerCase().replaceAll("[^a-z]", "");
         if (key < 1) {
             return "";
         }
-        if (encoded.length() < 1) {
+        if (encoded.isEmpty()) {
             return "";
         }
-        if (key > Math.floor(2 * encoded.length() - 1)) {
+        if (key > (double) (2 * encoded.length() - 1)) {
             return "Error: key is too large for plaintext length";
         }
         if (key == 1) {
@@ -2136,7 +2152,7 @@ public class Convertors {
         } else {
             String[] pt = new String[encoded.length()];
             int k = 0;
-            int line = 0;
+            int line;
             for (line = 0; line < key - 1; line++) {
                 int skip = 2 * (key - line - 1);
                 int j = 0;
@@ -2159,45 +2175,45 @@ public class Convertors {
     }
 
     static String substitution_encrypt(String message, String key) {
-        String ciphertext = "";
+        StringBuilder ciphertext = new StringBuilder();
         message = message.toLowerCase();
         key = key.replaceAll("[^a-z]", "");
         if (key.length() != 26) {
             return "Error: Key length must be 26 characters";
         }
-        if (message.length() < 1) {
+        if (message.isEmpty()) {
             return "";
         }
         for (int i = 0; i < message.length(); i++) {
             char chr = message.charAt(i);
             if (Character.isLowerCase(chr)) {
-                ciphertext += key.charAt(message.codePointAt(i) - 97);
+                ciphertext.append(key.charAt(message.codePointAt(i) - 97));
             } else {
-                ciphertext += "" + chr;
+                ciphertext.append(chr);
             }
         }
-        return ciphertext;
+        return ciphertext.toString();
     }
 
     static String substitution_decrypt(String ciphertext, String key) {
         ciphertext = ciphertext.toLowerCase();
-        String plaintext = "";
+        StringBuilder plaintext = new StringBuilder();
         key = key.toLowerCase().replaceAll("[^a-z]", "");
         if (key.length() != 26) {
             return "Error: Key length must be 26 characters";
         }
-        if (ciphertext.length() < 1) {
+        if (ciphertext.isEmpty()) {
             return "";
         }
         for (int i = 0; i < ciphertext.length(); i++) {
             char chr = ciphertext.charAt(i);
             if (Character.isLowerCase(chr)) {
-                plaintext += (char) (key.indexOf(ciphertext.charAt(i)) + 97);
+                plaintext.append((char) (key.indexOf(ciphertext.charAt(i)) + 97));
             } else {
-                plaintext += ciphertext.charAt(i);
+                plaintext.append(ciphertext.charAt(i));
             }
         }
-        return plaintext;
+        return plaintext.toString();
     }
 
     static String decode_js_string(String str) {
@@ -2209,7 +2225,7 @@ public class Convertors {
     }
 
     static String dec2hex(String str, String regex) {
-        StringBuffer result = new StringBuffer();
+        StringBuilder result = new StringBuilder();
         Pattern pattern = Pattern.compile(regex);
         Matcher regexMatcher = pattern.matcher(str);
         while (regexMatcher.find()) {
@@ -2251,7 +2267,7 @@ public class Convertors {
     }
 
     static String dec2oct(String str, String regex) {
-        StringBuffer result = new StringBuffer();
+        StringBuilder result = new StringBuilder();
         Pattern pattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
         Matcher regexMatcher = pattern.matcher(str);
         while (regexMatcher.find()) {
@@ -2266,7 +2282,7 @@ public class Convertors {
     }
 
     static String dec2bin(String str, String regex) {
-        StringBuffer result = new StringBuffer();
+        StringBuilder result = new StringBuilder();
         Pattern pattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
         Matcher regexMatcher = pattern.matcher(str);
         while (regexMatcher.find()) {
@@ -2281,7 +2297,7 @@ public class Convertors {
     }
 
     static String hex2dec(String str, String regex) {
-        StringBuffer result = new StringBuffer();
+        StringBuilder result = new StringBuilder();
         Pattern pattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
         Matcher regexMatcher = pattern.matcher(str);
         while (regexMatcher.find()) {
@@ -2295,7 +2311,7 @@ public class Convertors {
     }
 
     static String oct2dec(String str, String regex) {
-        StringBuffer result = new StringBuffer();
+        StringBuilder result = new StringBuilder();
         Pattern pattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
         Matcher regexMatcher = pattern.matcher(str);
         while (regexMatcher.find()) {
@@ -2309,7 +2325,7 @@ public class Convertors {
     }
 
     static String bin2dec(String str, String regex) {
-        StringBuffer result = new StringBuffer();
+        StringBuilder result = new StringBuilder();
         Pattern pattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
         Matcher regexMatcher = pattern.matcher(str);
         while (regexMatcher.find()) {
@@ -2324,19 +2340,19 @@ public class Convertors {
 
     static String from_charcode(String str) {
         String[] chars = str.split("[\\s,]");
-        String output = "";
-        for (int i = 0; i < chars.length; i++) {
+        StringBuilder output = new StringBuilder();
+        for (String aChar : chars) {
             try {
-                output += Character.toString((char) Integer.parseInt(chars[i]));
+                output.append((char) Integer.parseInt(aChar));
             } catch (NumberFormatException e) {
                 stderr.println(e.getMessage());
             }
         }
-        return output;
+        return output.toString();
     }
 
     static String to_charcode(String str) {
-        ArrayList<Integer> output = new ArrayList<Integer>();
+        ArrayList<Integer> output = new ArrayList<>();
         for (int i = 0; i < str.length(); i++) {
             output.add(Character.codePointAt(str, i));
         }
@@ -2344,34 +2360,34 @@ public class Convertors {
     }
 
     static String ascii2bin(String str) {
-        String output = "";
+        StringBuilder output = new StringBuilder();
         for (int i = 0; i < str.length(); i++) {
             try {
-                output += Integer.toBinaryString(Character.codePointAt(str, i));
-                output += " ";
+                output.append(Integer.toBinaryString(Character.codePointAt(str, i)));
+                output.append(" ");
             } catch (NumberFormatException e) {
                 stderr.println(e.getMessage());
             }
         }
-        return output;
+        return output.toString();
     }
 
     static String bin2ascii(String str) {
         String[] chars = str.split(" ");
-        String output = "";
-        for (int i = 0; i < chars.length; i++) {
+        StringBuilder output = new StringBuilder();
+        for (String aChar : chars) {
             try {
-                output += Character.toString((char) Integer.parseInt(chars[i], 2));
+                output.append((char) Integer.parseInt(aChar, 2));
             } catch (NumberFormatException e) {
                 stderr.println(e.getMessage());
             }
         }
-        return output;
+        return output.toString();
     }
 
     public static String ascii2hex(String str, String separator) {
         StringBuilder output = new StringBuilder();
-        String hex = "";
+        String hex;
         for (int i = 0; i < str.length(); i++) {
             try {
                 hex = Integer.toHexString(Character.codePointAt(str, i));
@@ -2390,7 +2406,7 @@ public class Convertors {
     }
 
     static String ascii2reverse_hex(String str, String separator) {
-        String hex = "";
+        String hex;
         java.util.List<String> output = new ArrayList<>();
         for (int i = 0; i < str.length(); i++) {
             try {
@@ -2408,18 +2424,18 @@ public class Convertors {
     }
 
     static String hex2ascii(String str) {
-        Pattern p = Pattern.compile("([0-9a-fA-F]{2})(?:[\\s,\\-]?)");
+        Pattern p = Pattern.compile("([0-9a-fA-F]{2})[\\s,\\-]?");
         Matcher m = p.matcher(str);
-        StringBuffer sb = new StringBuffer();
+        StringBuilder sb = new StringBuilder();
         while (m.find()) {
             m.appendReplacement(sb, "");
-            sb.append(Character.toString((char) Integer.parseInt(m.group(1), 16)));
+            sb.append((char) Integer.parseInt(m.group(1), 16));
         }
         return sb.toString();
     }
 
     static String hmac(String str, String key, String algoName) {
-        Mac hashMac = null;
+        Mac hashMac;
         try {
             hashMac = Mac.getInstance(algoName);
             SecretKeySpec secret_key = new SecretKeySpec(key.getBytes(), algoName);
@@ -2427,8 +2443,6 @@ public class Convertors {
 
             return org.bouncycastle.util.encoders.Hex.toHexString(hashMac.doFinal(str.getBytes()));
         } catch (Exception e) {
-            e.printStackTrace();
-
             return e.getMessage();
         }
     }
@@ -2460,42 +2474,479 @@ public class Convertors {
     static String fake(String name, String properties, String locale) {
         Faker faker = new Faker(new Locale(locale));
         name = name.replaceFirst("^fake_", "");
-        name = name.replaceAll("[^\\w]+","");
-        Method[] methods = faker.getClass().getDeclaredMethods();;
-        for(Method method : methods) {
-            if(Hackvertor.shouldFilterMethod(method)) {
-                continue;
-            }
-            if(!method.getName().equals(name)) {
-                continue;
-            }
-            try {
-                Object obj = method.invoke(faker);
-                return replaceProperties(obj, replaceProperties(obj, properties));
-            } catch (IllegalAccessException e) {
-                throw new RuntimeException(e);
-            } catch (InvocationTargetException e) {
-                throw new RuntimeException(e);
-            }
+        name = name.replaceAll("\\W+","");
+
+        // Get the faker component and replace properties
+        Object fakerComponent = getFakerComponent(faker, name);
+        if (fakerComponent != null) {
+            return replaceFakerProperties(fakerComponent, name, properties);
         }
         return "";
     }
 
-    private static String replaceProperties(Object obj, String properties) {
-        Method[] methods = obj.getClass().getDeclaredMethods();
-        for(Method method : methods) {
-            if(Hackvertor.shouldFilterMethod(method)) {
-                continue;
-            }
-            try {
-                properties = properties.replaceAll("\\$"+method.getName(), method.invoke(obj).toString());
-            } catch (IllegalAccessException e) {
-                throw new RuntimeException(e);
-            } catch (InvocationTargetException e) {
-                throw new RuntimeException(e);
+    private static Object getFakerComponent(Faker faker, String name) {
+        return switch (name) {
+            case "address" -> faker.address();
+            case "ancient" -> faker.ancient();
+            case "animal" -> faker.animal();
+            case "app" -> faker.app();
+            case "artist" -> faker.artist();
+            case "avatar" -> faker.avatar();
+            case "aviation" -> faker.aviation();
+            case "book" -> faker.book();
+            case "bool" -> faker.bool();
+            case "business" -> faker.business();
+            case "code" -> faker.code();
+            case "currency" -> faker.currency();
+            case "color" -> faker.color();
+            case "commerce" -> faker.commerce();
+            case "company" -> faker.company();
+            case "crypto" -> faker.crypto();
+            case "date" -> faker.date();
+            case "demographic" -> faker.demographic();
+            case "educator" -> faker.educator();
+            case "file" -> faker.file();
+            case "finance" -> faker.finance();
+            case "food" -> faker.food();
+            case "hacker" -> faker.hacker();
+            case "idNumber" -> faker.idNumber();
+            case "internet" -> faker.internet();
+            case "job" -> faker.job();
+            case "lorem" -> faker.lorem();
+            case "music" -> faker.music();
+            case "name" -> faker.name();
+            case "nation" -> faker.nation();
+            case "number" -> faker.number();
+            case "options" -> faker.options();
+            case "phoneNumber" -> faker.phoneNumber();
+            case "slackEmoji" -> faker.slackEmoji();
+            case "space" -> faker.space();
+            case "stock" -> faker.stock();
+            case "team" -> faker.team();
+            case "university" -> faker.university();
+            case "weather" -> faker.weather();
+            default -> null;
+        };
+    }
+
+    private static String replaceFakerProperties(Object component, String componentName, String properties) {
+        // For each property placeholder, replace with the actual value
+        String result = properties;
+
+        // Use Hackvertor's registry to get the list of available properties for this component
+        List<String> availableProperties = Hackvertor.getFakerProperties(componentName);
+        if (availableProperties == null) {
+            return properties;
+        }
+
+        // For each available property, try to get its value and replace in the string
+        for (String prop : availableProperties) {
+            String propName = prop.substring(1); // Remove the $ prefix
+            String value = getFakerPropertyValue(component, componentName, propName);
+            if (value != null) {
+                result = result.replace(prop, value);
             }
         }
-        return properties;
+
+        return result;
+    }
+
+    private static String getFakerPropertyValue(Object component, String componentName, String propertyName) {
+        try {
+            // Direct method calls based on component type and property name
+            // This avoids reflection completely
+            switch(componentName) {
+                case "address":
+                    com.github.javafaker.Address addr = (com.github.javafaker.Address) component;
+                    switch(propertyName) {
+                        case "buildingNumber": return addr.buildingNumber();
+                        case "city": return addr.city();
+                        case "cityName": return addr.cityName();
+                        case "cityPrefix": return addr.cityPrefix();
+                        case "citySuffix": return addr.citySuffix();
+                        case "country": return addr.country();
+                        case "countryCode": return addr.countryCode();
+                        case "firstName": return addr.firstName();
+                        case "fullAddress": return addr.fullAddress();
+                        case "lastName": return addr.lastName();
+                        case "latitude": return addr.latitude();
+                        case "longitude": return addr.longitude();
+                        case "secondaryAddress": return addr.secondaryAddress();
+                        case "state": return addr.state();
+                        case "stateAbbr": return addr.stateAbbr();
+                        case "streetAddress": return addr.streetAddress();
+                        case "streetAddressNumber": return addr.streetAddressNumber();
+                        case "streetName": return addr.streetName();
+                        case "streetPrefix": return addr.streetPrefix();
+                        case "streetSuffix": return addr.streetSuffix();
+                        case "timeZone": return addr.timeZone();
+                        case "zipCode": return addr.zipCode();
+                        case "zipCodePlus4": return addr.zipCodeByState(addr.stateAbbr());
+                    }
+                    break;
+                case "ancient":
+                    com.github.javafaker.Ancient ancient = (com.github.javafaker.Ancient) component;
+                    switch(propertyName) {
+                        case "god": return ancient.god();
+                        case "hero": return ancient.hero();
+                        case "primordial": return ancient.primordial();
+                        case "titan": return ancient.titan();
+                    }
+                    break;
+                case "animal":
+                    com.github.javafaker.Animal animal = (com.github.javafaker.Animal) component;
+                    if ("name".equals(propertyName)) return animal.name();
+                    break;
+                case "app":
+                    com.github.javafaker.App app = (com.github.javafaker.App) component;
+                    switch(propertyName) {
+                        case "author": return app.author();
+                        case "name": return app.name();
+                        case "version": return app.version();
+                    }
+                    break;
+                case "artist":
+                    com.github.javafaker.Artist artist = (com.github.javafaker.Artist) component;
+                    if ("name".equals(propertyName)) return artist.name();
+                    break;
+                case "avatar":
+                    com.github.javafaker.Avatar avatar = (com.github.javafaker.Avatar) component;
+                    if ("image".equals(propertyName)) return avatar.image();
+                    break;
+                case "aviation":
+                    com.github.javafaker.Aviation aviation = (com.github.javafaker.Aviation) component;
+                    switch(propertyName) {
+                        case "aircraft": return aviation.aircraft();
+                        case "airline": return null; // airline method doesn't exist in javafaker
+                        case "airport": return aviation.airport();
+                        case "METAR": return aviation.METAR();
+                    }
+                    break;
+                case "book":
+                    com.github.javafaker.Book book = (com.github.javafaker.Book) component;
+                    switch(propertyName) {
+                        case "author": return book.author();
+                        case "genre": return book.genre();
+                        case "publisher": return book.publisher();
+                        case "title": return book.title();
+                    }
+                    break;
+                case "bool":
+                    com.github.javafaker.Bool bool = (com.github.javafaker.Bool) component;
+                    if ("bool".equals(propertyName)) return String.valueOf(bool.bool());
+                    break;
+                case "business":
+                    com.github.javafaker.Business business = (com.github.javafaker.Business) component;
+                    switch(propertyName) {
+                        case "creditCardExpiry": return business.creditCardExpiry();
+                        case "creditCardNumber": return business.creditCardNumber();
+                        case "creditCardType": return business.creditCardType();
+                    }
+                    break;
+                case "code":
+                    com.github.javafaker.Code code = (com.github.javafaker.Code) component;
+                    switch(propertyName) {
+                        case "asin": return code.asin();
+                        case "ean13": return code.ean13();
+                        case "ean8": return code.ean8();
+                        case "gtin13": return code.gtin13();
+                        case "gtin8": return code.gtin8();
+                        case "imei": return code.imei();
+                        case "isbn10": return code.isbn10();
+                        case "isbn13": return code.isbn13();
+                        case "isbnGroup": return code.isbnGroup();
+                        case "isbnGs1": return code.isbnGs1();
+                        case "isbnRegistrant": return code.isbnRegistrant();
+                    }
+                    break;
+                case "currency":
+                    com.github.javafaker.Currency currency = (com.github.javafaker.Currency) component;
+                    switch(propertyName) {
+                        case "code": return currency.code();
+                        case "name": return currency.name();
+                    }
+                    break;
+                case "color":
+                    com.github.javafaker.Color color = (com.github.javafaker.Color) component;
+                    switch(propertyName) {
+                        case "hex": return color.hex();
+                        case "name": return color.name();
+                    }
+                    break;
+                case "commerce":
+                    com.github.javafaker.Commerce commerce = (com.github.javafaker.Commerce) component;
+                    switch(propertyName) {
+                        case "color": return commerce.color();
+                        case "department": return commerce.department();
+                        case "material": return commerce.material();
+                        case "price": return commerce.price();
+                        case "productName": return commerce.productName();
+                        case "promotionCode": return commerce.promotionCode();
+                    }
+                    break;
+                case "company":
+                    com.github.javafaker.Company company = (com.github.javafaker.Company) component;
+                    switch(propertyName) {
+                        case "bs": return company.bs();
+                        case "buzzword": return company.buzzword();
+                        case "catchPhrase": return company.catchPhrase();
+                        case "industry": return company.industry();
+                        case "logo": return company.logo();
+                        case "name": return company.name();
+                        case "profession": return company.profession();
+                        case "suffix": return company.suffix();
+                        case "url": return company.url();
+                    }
+                    break;
+                case "crypto":
+                    com.github.javafaker.Crypto crypto = (com.github.javafaker.Crypto) component;
+                    switch(propertyName) {
+                        case "md5": return crypto.md5();
+                        case "sha1": return crypto.sha1();
+                        case "sha256": return crypto.sha256();
+                        case "sha512": return crypto.sha512();
+                    }
+                    break;
+                case "date":
+                    com.github.javafaker.DateAndTime date = (com.github.javafaker.DateAndTime) component;
+                    if ("birthday".equals(propertyName)) return date.birthday().toString();
+                    break;
+                case "demographic":
+                    com.github.javafaker.Demographic demographic = (com.github.javafaker.Demographic) component;
+                    switch(propertyName) {
+                        case "demonym": return demographic.demonym();
+                        case "educationalAttainment": return demographic.educationalAttainment();
+                        case "maritalStatus": return demographic.maritalStatus();
+                        case "race": return demographic.race();
+                        case "sex": return demographic.sex();
+                    }
+                    break;
+                case "educator":
+                    com.github.javafaker.Educator educator = (com.github.javafaker.Educator) component;
+                    switch(propertyName) {
+                        case "campus": return educator.campus();
+                        case "course": return educator.course();
+                        case "secondarySchool": return educator.secondarySchool();
+                        case "university": return educator.university();
+                    }
+                    break;
+                case "file":
+                    com.github.javafaker.File file = (com.github.javafaker.File) component;
+                    switch(propertyName) {
+                        case "extension": return file.extension();
+                        case "fileName": return file.fileName();
+                        case "mimeType": return file.mimeType();
+                    }
+                    break;
+                case "finance":
+                    com.github.javafaker.Finance finance = (com.github.javafaker.Finance) component;
+                    switch(propertyName) {
+                        case "bic": return finance.bic();
+                        case "creditCard": return finance.creditCard();
+                        case "iban": return finance.iban();
+                    }
+                    break;
+                case "food":
+                    com.github.javafaker.Food food = (com.github.javafaker.Food) component;
+                    switch(propertyName) {
+                        case "dish": return food.dish();
+                        case "fruit": return food.fruit();
+                        case "ingredient": return food.ingredient();
+                        case "measurement": return food.measurement();
+                        case "spice": return food.spice();
+                        case "sushi": return food.sushi();
+                        case "vegetable": return food.vegetable();
+                    }
+                    break;
+                case "hacker":
+                    com.github.javafaker.Hacker hacker = (com.github.javafaker.Hacker) component;
+                    switch(propertyName) {
+                        case "abbreviation": return hacker.abbreviation();
+                        case "adjective": return hacker.adjective();
+                        case "ingverb": return hacker.ingverb();
+                        case "noun": return hacker.noun();
+                        case "verb": return hacker.verb();
+                    }
+                    break;
+                case "idNumber":
+                    com.github.javafaker.IdNumber idNumber = (com.github.javafaker.IdNumber) component;
+                    switch(propertyName) {
+                        case "invalid": return idNumber.invalid();
+                        case "invalidSvSeSsn": return idNumber.invalidSvSeSsn();
+                        case "ssnValid": return idNumber.ssnValid();
+                        case "valid": return idNumber.valid();
+                        case "validSvSeSsn": return idNumber.validSvSeSsn();
+                    }
+                    break;
+                case "internet":
+                    com.github.javafaker.Internet internet = (com.github.javafaker.Internet) component;
+                    switch(propertyName) {
+                        case "avatar": return internet.avatar();
+                        case "domainName": return internet.domainName();
+                        case "domainSuffix": return internet.domainSuffix();
+                        case "domainWord": return internet.domainWord();
+                        case "emailAddress": return internet.emailAddress();
+                        case "image": return internet.image();
+                        case "ipV4Address": return internet.ipV4Address();
+                        case "ipV4Cidr": return internet.ipV4Cidr();
+                        case "ipV6Address": return internet.ipV6Address();
+                        case "ipV6Cidr": return internet.ipV6Cidr();
+                        case "macAddress": return internet.macAddress();
+                        case "password": return internet.password();
+                        case "privateIpV4Address": return internet.privateIpV4Address();
+                        case "publicIpV4Address": return internet.publicIpV4Address();
+                        case "safeEmailAddress": return internet.safeEmailAddress();
+                        case "slug": return internet.slug();
+                        case "url": return internet.url();
+                        case "userAgent": return internet.userAgent(null);
+                        case "uuid": return internet.uuid();
+                    }
+                    break;
+                case "job":
+                    com.github.javafaker.Job job = (com.github.javafaker.Job) component;
+                    switch(propertyName) {
+                        case "field": return job.field();
+                        case "keySkills": return job.keySkills();
+                        case "position": return job.position();
+                        case "seniority": return job.seniority();
+                        case "title": return job.title();
+                    }
+                    break;
+                case "lorem":
+                    com.github.javafaker.Lorem lorem = (com.github.javafaker.Lorem) component;
+                    switch(propertyName) {
+                        case "character": return String.valueOf(lorem.character());
+                        case "characters": return lorem.characters();
+                        case "fixedString": return lorem.fixedString(10);
+                        case "paragraph": return lorem.paragraph();
+                        case "sentence": return lorem.sentence();
+                        case "word": return lorem.word();
+                    }
+                    break;
+                case "music":
+                    com.github.javafaker.Music music = (com.github.javafaker.Music) component;
+                    switch(propertyName) {
+                        case "chord": return music.chord();
+                        case "genre": return music.genre();
+                        case "instrument": return music.instrument();
+                        case "key": return music.key();
+                    }
+                    break;
+                case "name":
+                    com.github.javafaker.Name name = (com.github.javafaker.Name) component;
+                    switch(propertyName) {
+                        case "bloodGroup": return name.bloodGroup();
+                        case "firstName": return name.firstName();
+                        case "fullName": return name.fullName();
+                        case "lastName": return name.lastName();
+                        case "name": return name.name();
+                        case "nameWithMiddle": return name.nameWithMiddle();
+                        case "prefix": return name.prefix();
+                        case "suffix": return name.suffix();
+                        case "title": return name.title();
+                        case "username": return name.username();
+                    }
+                    break;
+                case "nation":
+                    com.github.javafaker.Nation nation = (com.github.javafaker.Nation) component;
+                    switch(propertyName) {
+                        case "capitalCity": return nation.capitalCity();
+                        case "flag": return nation.flag();
+                        case "language": return nation.language();
+                        case "nationality": return nation.nationality();
+                    }
+                    break;
+                case "number":
+                    com.github.javafaker.Number number = (com.github.javafaker.Number) component;
+                    switch(propertyName) {
+                        case "digit": return String.valueOf(number.digit());
+                        case "digits": return number.digits(5);
+                        case "negative": return String.valueOf(number.numberBetween(Integer.MIN_VALUE, -1));
+                        case "positive": return String.valueOf(number.numberBetween(1, Integer.MAX_VALUE));
+                    }
+                    break;
+                case "options":
+                    com.github.javafaker.Options options = (com.github.javafaker.Options) component;
+                    if ("option".equals(propertyName)) return options.option("option1", "option2", "option3");
+                    break;
+                case "phoneNumber":
+                    com.github.javafaker.PhoneNumber phoneNumber = (com.github.javafaker.PhoneNumber) component;
+                    switch(propertyName) {
+                        case "cellPhone": return phoneNumber.cellPhone();
+                        case "phoneNumber": return phoneNumber.phoneNumber();
+                        case "phoneNumberInternational": return phoneNumber.phoneNumber(); // Use phoneNumber as fallback
+                        case "phoneNumberNational": return phoneNumber.phoneNumber(); // Use phoneNumber as fallback
+                        case "phoneNumberWithExtension": return phoneNumber.subscriberNumber(5);
+                        case "tollFreePhoneNumber": return phoneNumber.cellPhone(); // No direct toll-free method
+                    }
+                    break;
+                case "slackEmoji":
+                    com.github.javafaker.SlackEmoji slackEmoji = (com.github.javafaker.SlackEmoji) component;
+                    switch(propertyName) {
+                        case "activity": return slackEmoji.activity();
+                        case "celebration": return slackEmoji.celebration();
+                        case "custom": return slackEmoji.custom();
+                        case "emoji": return slackEmoji.emoji();
+                        case "foodAndDrink": return slackEmoji.foodAndDrink();
+                        case "nature": return slackEmoji.nature();
+                        case "people": return slackEmoji.people();
+                    }
+                    break;
+                case "space":
+                    com.github.javafaker.Space space = (com.github.javafaker.Space) component;
+                    switch(propertyName) {
+                        case "agency": return space.agency();
+                        case "agencyAbbreviation": return space.agencyAbbreviation();
+                        case "company": return space.company();
+                        case "constellation": return space.constellation();
+                        case "distanceMeasurement": return space.distanceMeasurement();
+                        case "galaxy": return space.galaxy();
+                        case "meteorite": return space.meteorite();
+                        case "moon": return space.moon();
+                        case "nasaSpaceCraft": return space.nasaSpaceCraft();
+                        case "nebula": return space.nebula();
+                        case "planet": return space.planet();
+                        case "star": return space.star();
+                        case "starCluster": return space.starCluster();
+                    }
+                    break;
+                case "stock":
+                    com.github.javafaker.Stock stock = (com.github.javafaker.Stock) component;
+                    switch(propertyName) {
+                        case "nsdqSymbol": return stock.nsdqSymbol();
+                        case "nyseSymbol": return stock.nyseSymbol();
+                    }
+                    break;
+                case "team":
+                    com.github.javafaker.Team team = (com.github.javafaker.Team) component;
+                    switch(propertyName) {
+                        case "creature": return team.creature();
+                        case "name": return team.name();
+                        case "sport": return team.sport();
+                        case "state": return team.state();
+                    }
+                    break;
+                case "university":
+                    com.github.javafaker.University university = (com.github.javafaker.University) component;
+                    switch(propertyName) {
+                        case "name": return university.name();
+                        case "prefix": return university.prefix();
+                        case "suffix": return university.suffix();
+                    }
+                    break;
+                case "weather":
+                    com.github.javafaker.Weather weather = (com.github.javafaker.Weather) component;
+                    switch(propertyName) {
+                        case "description": return weather.description();
+                        case "temperatureCelsius": return weather.temperatureCelsius();
+                        case "temperatureFahrenheit": return weather.temperatureFahrenheit();
+                    }
+                    break;
+            }
+        } catch (Exception e) {
+            return null;
+        }
+        return null;
     }
 
     static String sha1(String str) {
@@ -2713,11 +3164,10 @@ public class Convertors {
     }
 
     static String whirlpool(String message) {
-        MessageDigest digest = null;
+        MessageDigest digest;
         try {
             digest = MessageDigest.getInstance("WHIRLPOOL", "BC");
         } catch (NoSuchAlgorithmException | NoSuchProviderException e) {
-            e.printStackTrace(); //Unlikely to happen
             return "";
         }
         byte[] result = digest.digest(message.getBytes());
@@ -2733,7 +3183,7 @@ public class Convertors {
     }
 
     static String find(String str, String find, int group) {
-        java.util.List<String> allMatches = new ArrayList<String>();
+        java.util.List<String> allMatches = new ArrayList<>();
         try {
             Matcher m = Pattern.compile(find).matcher(str);
             while (m.find()) {
@@ -2801,7 +3251,7 @@ public class Convertors {
     }
 
     static double index_of_coincidence(String str) {
-        Map<Integer, Integer> charCounter = new HashMap<Integer, Integer>();
+        Map<Integer, Integer> charCounter = new HashMap<>();
         for (int i = 0; i <= 0xff; i++) {
             charCounter.put(i, 0);
         }
@@ -2815,8 +3265,7 @@ public class Convertors {
         for (int i = 0; i <= 0xff; i++) {
             sum = sum + charCounter.get(i) * (i - 1 < 0 ? 0 : charCounter.get(i - 1));
         }
-        double ic = sum / (total * (total - 1));
-        return ic;
+        return sum / (total * (total - 1));
     }
 
     static int getGCD(int n1, int n2) {
@@ -2828,38 +3277,34 @@ public class Convertors {
 
     static <K, V extends Comparable<V>> Map<K, V> sortByValuesDesc(final Map<K, V> map) {
         Comparator<K> valueComparator =
-                new Comparator<K>() {
-                    public int compare(K k1, K k2) {
-                        int compare =
-                                map.get(k2).compareTo(map.get(k1));
-                        if (compare == 0)
-                            return 1;
-                        else
-                            return compare;
-                    }
+                (k1, k2) -> {
+                    int compare =
+                            map.get(k2).compareTo(map.get(k1));
+                    if (compare == 0)
+                        return 1;
+                    else
+                        return compare;
                 };
 
         Map<K, V> sortedByValues =
-                new TreeMap<K, V>(valueComparator);
+                new TreeMap<>(valueComparator);
         sortedByValues.putAll(map);
         return sortedByValues;
     }
 
     static <K, V extends Comparable<V>> Map<K, V> sortByValuesAsc(final Map<K, V> map) {
         Comparator<K> valueComparator =
-                new Comparator<K>() {
-                    public int compare(K k1, K k2) {
-                        int compare =
-                                map.get(k1).compareTo(map.get(k2));
-                        if (compare == 0)
-                            return 1;
-                        else
-                            return compare;
-                    }
+                (k1, k2) -> {
+                    int compare =
+                            map.get(k1).compareTo(map.get(k2));
+                    if (compare == 0)
+                        return 1;
+                    else
+                        return compare;
                 };
 
         Map<K, V> sortedByValues =
-                new TreeMap<K, V>(valueComparator);
+                new TreeMap<>(valueComparator);
         sortedByValues.putAll(map);
         return sortedByValues;
     }
@@ -2880,9 +3325,8 @@ public class Convertors {
         int repeat = 0;
         boolean matched;
         String test;
-        String encodingOpeningTags = "";
-        String encodingClosingTags = "";
-        String tag = "";
+        StringBuilder encodingOpeningTags = new StringBuilder();
+        StringBuilder encodingClosingTags = new StringBuilder();
         do {
             String startStr = str;
             matched = false;
@@ -2890,21 +3334,21 @@ public class Convertors {
             if (Pattern.compile("^\\x1f\\x8b\\x08").matcher(str).find()) {
                 str = gzip_decompress(str);
                 matched = true;
-                encodingOpeningTags += "<@gzip_compress>";
-                encodingClosingTags = "</@gzip_compress>" + encodingClosingTags;
+                encodingOpeningTags.append("<@gzip_compress>");
+                encodingClosingTags.insert(0, "</@gzip_compress>");
             }
             if (Pattern.compile("[01]{4,}\\s+[01]{4,}").matcher(str).find()) {
                 str = bin2ascii(str);
                 matched = true;
-                encodingOpeningTags += "<@ascii2bin>";
-                encodingClosingTags = "</@ascii2bin>" + encodingClosingTags;
+                encodingOpeningTags.append("<@ascii2bin>");
+                encodingClosingTags.insert(0, "</@ascii2bin>");
             }
             if (Pattern.compile("(?:[0-9a-fA-F]{2}[\\s,\\-]?){3,}").matcher(str).find()) {
                 test = hex2ascii(str);
                 if (Pattern.compile("^[\\x09-\\x7f]+$", Pattern.CASE_INSENSITIVE).matcher(test).find()) {
                     str = test;
-                    encodingOpeningTags += "<@ascii2hex(\" \")>";
-                    encodingClosingTags = "</@ascii2hex>" + encodingClosingTags;
+                    encodingOpeningTags.append("<@ascii2hex(\" \")>");
+                    encodingClosingTags.insert(0, "</@ascii2hex>");
                     repeat++;
                     continue;
                 }
@@ -2912,22 +3356,22 @@ public class Convertors {
             if (Pattern.compile("^[0-9a-fA-F]+$").matcher(str).find() && str.length() % 2 == 0) {
                 str = hex2ascii(str);
                 matched = true;
-                encodingOpeningTags += "<@ascii2hex(\"\")>";
-                encodingClosingTags = "</@ascii2hex>" + encodingClosingTags;
+                encodingOpeningTags.append("<@ascii2hex(\"\")>");
+                encodingClosingTags.insert(0, "</@ascii2hex>");
             }
             if (!Pattern.compile("[^\\d,\\s]").matcher(str).find() && Pattern.compile("\\d+[,\\s]+").matcher(str).find()) {
                 str = from_charcode(str);
                 matched = true;
-                encodingOpeningTags += "<@to_charcode>";
-                encodingClosingTags = "</@to_charcode>" + encodingClosingTags;
+                encodingOpeningTags.append("<@to_charcode>");
+                encodingClosingTags.insert(0, "</@to_charcode>");
             }
-            if (Pattern.compile("(?:\\\\[0]{0,4}[0-9a-fA-F]{2}[\\s,\\-]?){3,}").matcher(str).find()) {
+            if (Pattern.compile("(?:\\\\0{0,4}[0-9a-fA-F]{2}[\\s,\\-]?){3,}").matcher(str).find()) {
                 test = decode_css_escapes(str);
                 if (Pattern.compile("^[\\x09-\\x7f]+$", Pattern.CASE_INSENSITIVE).matcher(test).find()) {
                     str = test;
                     matched = true;
-                    encodingOpeningTags += "<@css_escapes>";
-                    encodingClosingTags = "</@css_escapes>" + encodingClosingTags;
+                    encodingOpeningTags.append("<@css_escapes>");
+                    encodingClosingTags.insert(0, "</@css_escapes>");
                 }
             }
             if (Pattern.compile("\\\\x[0-9a-f]{2}", Pattern.CASE_INSENSITIVE).matcher(str).find()) {
@@ -2935,8 +3379,8 @@ public class Convertors {
                 if (Pattern.compile("^[\\x09-\\x7f]+$", Pattern.CASE_INSENSITIVE).matcher(test).find()) {
                     str = test;
                     matched = true;
-                    encodingOpeningTags += "<@hex_escapes>";
-                    encodingClosingTags = "</@hex_escapes>" + encodingClosingTags;
+                    encodingOpeningTags.append("<@hex_escapes>");
+                    encodingClosingTags.insert(0, "</@hex_escapes>");
                 }
             }
             if (Pattern.compile("\\\\[0-9]{1,3}").matcher(str).find()) {
@@ -2944,8 +3388,8 @@ public class Convertors {
                 if (Pattern.compile("^[\\x09-\\x7f]+$", Pattern.CASE_INSENSITIVE).matcher(test).find()) {
                     str = test;
                     matched = true;
-                    encodingOpeningTags += "<@octal_escapes>";
-                    encodingClosingTags = "</@octal_escapes>" + encodingClosingTags;
+                    encodingOpeningTags.append("<@octal_escapes>");
+                    encodingClosingTags.insert(0, "</@octal_escapes>");
                 }
             }
             if (Pattern.compile("\\\\u[0-9a-f]{4}", Pattern.CASE_INSENSITIVE).matcher(str).find()) {
@@ -2953,39 +3397,32 @@ public class Convertors {
                 if (Pattern.compile("^[\\x09-\\x7f]+$", Pattern.CASE_INSENSITIVE).matcher(test).find()) {
                     str = test;
                     matched = true;
-                    encodingOpeningTags += "<@unicode_escapes>";
-                    encodingClosingTags = "</@unicode_escapes>" + encodingClosingTags;
+                    encodingOpeningTags.append("<@unicode_escapes>");
+                    encodingClosingTags.insert(0, "</@unicode_escapes>");
                 }
             }
             if (Pattern.compile("&[a-zA-Z]+;", Pattern.CASE_INSENSITIVE).matcher(str).find()) {
                 str = decode_html5_entities(str);
                 matched = true;
-                tag = "htmlentities";
-                encodingOpeningTags += "<@html_entities>";
-                encodingClosingTags = "</@html_entities>" + encodingClosingTags;
+                encodingOpeningTags.append("<@html_entities>");
+                encodingClosingTags.insert(0, "</@html_entities>");
             }
             if (Pattern.compile("&#x?[0-9a-f]+;?", Pattern.CASE_INSENSITIVE).matcher(str).find()) {
                 str = decode_html5_entities(str);
                 matched = true;
-                tag = "htmlentities";
-                encodingOpeningTags += "<@hex_entities>";
-                encodingClosingTags = "</@hex_entities>" + encodingClosingTags;
+                encodingOpeningTags.append("<@hex_entities>");
+                encodingClosingTags.insert(0, "</@hex_entities>");
             }
             if (Pattern.compile("%[0-9a-f]{2}", Pattern.CASE_INSENSITIVE).matcher(str).find()) {
-                boolean plus = false;
-                if (str.contains("+")) {
-                    plus = true;
-                }
+                boolean plus = str.contains("+");
                 str = decode_url(str);
                 matched = true;
                 if (plus) {
-                    tag = "urldecode";
-                    encodingOpeningTags += "<@urlencode>";
-                    encodingClosingTags = "</@urlencode>" + encodingClosingTags;
+                    encodingOpeningTags.append("<@urlencode>");
+                    encodingClosingTags.insert(0, "</@urlencode>");
                 } else {
-                    tag = "urlencode_not_plus";
-                    encodingOpeningTags += "<@urlencode_not_plus>";
-                    encodingClosingTags = "</@urlencode_not_plus>" + encodingClosingTags;
+                    encodingOpeningTags.append("<@urlencode_not_plus>");
+                    encodingClosingTags.insert(0, "</@urlencode_not_plus>");
                 }
             }
             if (Pattern.compile("^[a-zA-Z0-9\\-_.]+$", Pattern.CASE_INSENSITIVE).matcher(str).find()) {
@@ -2999,9 +3436,8 @@ public class Convertors {
                 if (Pattern.compile("^[\\x00-\\x7f]+$", Pattern.CASE_INSENSITIVE).matcher(test).find()) {
                     str = test;
                     matched = true;
-                    tag = "base64";
-                    encodingOpeningTags += "<@base64>";
-                    encodingClosingTags = "</@base64>" + encodingClosingTags;
+                    encodingOpeningTags.append("<@base64>");
+                    encodingClosingTags.insert(0, "</@base64>");
                 }
             }
 
@@ -3010,9 +3446,8 @@ public class Convertors {
                 if (Pattern.compile("^[\\x00-\\x7f]+$", Pattern.CASE_INSENSITIVE).matcher(test).find()) {
                     str = test;
                     matched = true;
-                    tag = "base32";
-                    encodingOpeningTags += "<@base32>";
-                    encodingClosingTags = "</@base32>" + encodingClosingTags;
+                    encodingOpeningTags.append("<@base32>");
+                    encodingClosingTags.insert(0, "</@base32>");
                 }
             }
             if (decrypt) {
@@ -3034,15 +3469,14 @@ public class Convertors {
                         String originalString = str;
                         str = rotN(str, n);
                         matched = true;
-                        tag = "rotN";
                         for (int i = 1; i <= 25; i++) {
                             if (rotN(str, i).equals(originalString)) {
                                 n = i;
                                 break;
                             }
                         }
-                        encodingOpeningTags += "<@rotN(" + n + ")>";
-                        encodingClosingTags = "</@rotN>" + encodingClosingTags;
+                        encodingOpeningTags.append("<@rotN(").append(n).append(")>");
+                        encodingClosingTags.insert(0, "</@rotN>");
                     }
                 }
                 if (Pattern.compile("(?:[a-z]+[\\s,-]){2,}").matcher(str).find()) {
@@ -3052,15 +3486,15 @@ public class Convertors {
                     int key2 = 0;
                     int[] keyArray1 = {1, 3, 5, 7, 9, 11, 15, 17, 19, 21, 23, 25};
                     int[] keyArray2 = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25};
-                    for (int i = 0; i < keyArray1.length; i++) {
-                        for (int j = 0; j < keyArray2.length; j++) {
-                            String decodedString = affine_decrypt(str, keyArray1[i], keyArray2[j]);
+                    for (int k : keyArray1) {
+                        for (int i : keyArray2) {
+                            String decodedString = affine_decrypt(str, k, i);
                             double score = is_like_english(decodedString);
                             total += score;
                             if (score > bestScore) {
                                 bestScore = score;
-                                key1 = keyArray1[i];
-                                key2 = keyArray2[j];
+                                key1 = k;
+                                key2 = i;
                             }
                         }
                     }
@@ -3068,9 +3502,8 @@ public class Convertors {
                     if ((((average - bestScore) / average) * 100) > 60 && (key1 != 1 && key2 != 0)) {
                         str = affine_decrypt(str, key1, key2);
                         matched = true;
-                        tag = "affine";
-                        encodingOpeningTags += "<@affine_encrypt(" + key1 + "," + key2 + ")>";
-                        encodingClosingTags = "</@affine_encrypt>" + encodingClosingTags;
+                        encodingOpeningTags.append("<@affine_encrypt(").append(key1).append(",").append(key2).append(")>");
+                        encodingClosingTags.insert(0, "</@affine_encrypt>");
                     }
                 }
 
@@ -3079,16 +3512,15 @@ public class Convertors {
                     if (is_like_english(plaintext) - is_like_english(str) >= 200) {
                         str = plaintext;
                         matched = true;
-                        tag = "atbash";
-                        encodingOpeningTags += "<@atbash_encrypt>";
-                        encodingClosingTags = "</@atbash_encrypt>" + encodingClosingTags;
+                        encodingOpeningTags.append("<@atbash_encrypt>");
+                        encodingClosingTags.insert(0, "</@atbash_encrypt>");
                     }
                 }
                 if (Pattern.compile("^[a-z]{10,}$").matcher(str).find()) {
                     double total = 0;
                     double bestScore = -9999999;
                     int n = 0;
-                    double max = Math.floor(2 * str.length() - 1);
+                    double max = 2 * str.length() - 1;
                     for (int i = 2; i < max; i++) {
                         String decodedString = rail_fence_decrypt(str, i);
                         double score = is_like_english(decodedString);
@@ -3102,9 +3534,8 @@ public class Convertors {
                     if ((((average - bestScore) / average) * 100) > 20) {
                         str = rail_fence_decrypt(str, n);
                         matched = true;
-                        tag = "rail_fence";
-                        encodingOpeningTags += "<@rail_fence_encrypt(" + n + ")>";
-                        encodingClosingTags = "</@rail_fence_encrypt>" + encodingClosingTags;
+                        encodingOpeningTags.append("<@rail_fence_encrypt(").append(n).append(")>");
+                        encodingClosingTags.insert(0, "</@rail_fence_encrypt>");
                     }
                 }
 
@@ -3118,9 +3549,8 @@ public class Convertors {
                         String key = xor_decrypt(str, lenGuess, true).replaceAll("\"", "\\\"");
                         str = test;
                         matched = true;
-                        tag = "xor";
-                        encodingOpeningTags += "<@xor(\"" + key + "\")>";
-                        encodingClosingTags = "</@xor>" + encodingClosingTags;
+                        encodingOpeningTags.append("<@xor(\"").append(key).append("\")>");
+                        encodingClosingTags.insert(0, "</@xor>");
                     }
                 }
             }
@@ -3133,7 +3563,7 @@ public class Convertors {
     }
 
     static String range(String str, int from, int to, int step) {
-        ArrayList<Integer> output = new ArrayList<Integer>();
+        ArrayList<Integer> output = new ArrayList<>();
         to++;
         if (from >= 0 && to - from <= 10000 && step > 0) {
             for (int i = from; i < to; i += step) {
@@ -3146,9 +3576,9 @@ public class Convertors {
     static String total(String str) {
         String[] chars = str.split(",");
         int total = 0;
-        for (int i = 0; i < chars.length; i++) {
+        for (String aChar : chars) {
             try {
-                total += Integer.parseInt(chars[i]);
+                total += Integer.parseInt(aChar);
             } catch (NumberFormatException e) {
                 stderr.println(e.getMessage());
             }
@@ -3164,10 +3594,10 @@ public class Convertors {
             stderr.println(e.getMessage());
         }
         ArrayList<String> output = new ArrayList<>();
-        int num = 0;
-        for (int i = 0; i < chars.length; i++) {
+        int num;
+        for (String aChar : chars) {
             try {
-                num = Integer.parseInt(chars[i]);
+                num = Integer.parseInt(aChar);
                 switch (operation) {
                     case "+":
                         num = num + amount;
@@ -3211,7 +3641,7 @@ public class Convertors {
         }
         for (int i = 0; i < chars.length; i++) {
             try {
-                chars[i] = "" + Integer.toString(Integer.parseInt(chars[i], from), to);
+                chars[i] = Integer.toString(Integer.parseInt(chars[i], from), to);
             } catch (NumberFormatException e) {
                 stderr.println(e.getMessage());
             }
@@ -3267,17 +3697,17 @@ public class Convertors {
     }
 
     static String throw_eval(String str) {
-        String out = "window.onerror=eval;throw'=";
+        StringBuilder out = new StringBuilder("window.onerror=eval;throw'=");
         for (int i = 0; i < str.length(); i++) {
             char chr = str.charAt(i);
             if (Character.isDigit(chr) || Character.isAlphabetic(chr)) {
-                out += chr;
+                out.append(chr);
             } else {
-                out += hex_escapes("" + chr);
+                out.append(hex_escapes("" + chr));
             }
         }
-        out += "'";
-        return out;
+        out.append("'");
+        return out.toString();
     }
 
     static String iframe_src_doc(String str) {
@@ -3371,16 +3801,18 @@ public class Convertors {
             javaInterpreter.set("variableMap", variableMap);
             javaInterpreter.set("executionKey", executionKey);
             javaInterpreter.set("customTags", customTags);
-            String initCode = "import burp.hv.Convertors;\n" +
-                    "public String convert(String input) {\n" +
-                    "   return Convertors.weakConvert(variableMap, customTags, input, hackvertor);\n" +
-                    "}\n";
+            String initCode = """
+                    import burp.hv.Convertors;
+                    public String convert(String input) {
+                       return Convertors.weakConvert(variableMap, customTags, input, hackvertor);
+                    }
+                    """;
 
 
             for (Map.Entry<String, String> entry : variableMap.entrySet()) {
                 String name = entry.getKey();
                 Object value = entry.getValue();
-                if (name.length() > 0) {
+                if (!name.isEmpty()) {
                     javaInterpreter.set(name, value);
                 }
             }
@@ -3402,11 +3834,11 @@ public class Convertors {
             }
             return javaInterpreter.get("output").toString();
         } catch (EvalError | IOException e) {
-            return "Unable to parse Java:" + e.toString();
+            return "Unable to parse Java:" + e;
         } catch (NullPointerException e) {
-            return "Unable to get output. Make sure you have defined an output variable:" + e.toString();
+            return "Unable to get output. Make sure you have defined an output variable:" + e;
         } catch (Exception | Error e ) {
-            return "Unable to parse Java:" + e.toString();
+            return "Unable to parse Java:" + e;
         }
     }
 
@@ -3431,9 +3863,9 @@ public class Convertors {
         ai.setBypassRateLimit(bypassRateLimit);
         String defaultInstructions = """
                 Do not describe what you are doing just display the results.
-                Be as concise as possible. 
-                Do not prefix with anything just display the results.               
-                """;
+                Be as concise as possible.
+                Do not prefix with anything just display the results.              \s
+               """;
 
         String parameters = "";
         try {
@@ -3472,10 +3904,11 @@ public class Convertors {
         data.setVariable("variableMap", variableMap);
         data.setVariable("executionKey", executionKey);
         data.setVariable("customTags", customTags);
-        String initCode = "" +
-                "public String convert(String input) {\n" +
-                "   return Convertors.weakConvert(variableMap, customTags, input, hackvertor);\n" +
-                "}\n";
+        String initCode = """
+                public String convert(String input) {
+                   return Convertors.weakConvert(variableMap, customTags, input, hackvertor)
+                }
+                """;
         try {
             if (code.endsWith(".groovy")) {
                 shell.evaluate(new FileReader(code));
@@ -3483,7 +3916,7 @@ public class Convertors {
                 shell.evaluate(initCode + code);
             }
         } catch (FileNotFoundException | CompilationFailedException e) {
-            return "Unable to parse Groovy:" + e.toString();
+            return "Unable to parse Groovy:" + e;
         }
         return shell.getVariable("output").toString();
     }
@@ -3503,7 +3936,7 @@ public class Convertors {
             for (Map.Entry<String, String> entry : variableMap.entrySet()) {
                 String name = entry.getKey();
                 String value = entry.getValue();
-                if (name.length() > 0) {
+                if (!name.isEmpty()) {
                     if (value.matches("^\\d+$") || value.matches("^0x[0-9a-fA-F]+$")) {
                         context.getBindings("js").putMember(name, Integer.parseInt(value));
                     } else {
@@ -3543,7 +3976,7 @@ public class Convertors {
             }
 
             if (code.endsWith(".js")) {
-                return context.eval("js", new String(Files.readAllBytes(Paths.get(code)), StandardCharsets.UTF_8)).toString();
+                return context.eval("js", Files.readString(Paths.get(code))).toString();
             } else {
                 return context.eval("js", code).toString();
             }
@@ -3565,7 +3998,7 @@ public class Convertors {
             return "No command specified";
         }
         Runtime r = Runtime.getRuntime();
-        Process p = null;
+        Process p;
         try {
             p = r.exec(cmd);
         } catch (IOException e) {
@@ -3583,11 +4016,11 @@ public class Convertors {
         }
         BufferedReader b = new BufferedReader(new InputStreamReader(p.getInputStream()));
         StringBuilder output = new StringBuilder();
-        String line = "";
-        String lineSep = System.getProperty("line.separator");
+        String line;
+        String lineSep = System.lineSeparator();
         while (true) {
             try {
-                if (!((line = b.readLine()) != null)) break;
+                if ((line = b.readLine()) == null) break;
             } catch (IOException e) {
                 return "Failed to read output:"+e;
             }
@@ -3619,19 +4052,19 @@ public class Convertors {
         if(!enabled) {
            return "The read url command is disabled until you change the parameter to true.";
         }
-        URL url = null;
+        URL url;
         try {
             url = new URL(input);
         } catch (MalformedURLException e) {
             return "Malformed URL:" + e;
         }
-        HttpURLConnection connection = null;
+        HttpURLConnection connection;
         try {
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
             connection.setReadTimeout(60);
             connection.connect();
-            BufferedReader br = null;
+            BufferedReader br;
             if (100 <= connection.getResponseCode() && connection.getResponseCode() <= 399) {
                 br = new BufferedReader(new InputStreamReader(connection.getInputStream()));
             } else {
