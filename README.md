@@ -10,6 +10,53 @@ Tags also support arguments. The find tag allows you to find a string by regex a
 
 # Changelog
 
+## Version v2.2.15 (2025-11-15)
+
+- Improved tag finder to be used within Hackvertor Panel
+- Applied Burp theme to components
+
+## Version v2.2.13 (2025-11-13)
+
+- Used Montoya compression utils
+- Tag finder window
+
+## Version v2.2.12 (2025-11-13)
+
+- Fixed Burp capability checks now Montoya API has been released.
+
+## Version v2.2.10 (2025-11-7)
+
+- Fixed grid layout issues
+- Added tooltips
+
+## Version v2.2.6 (2025-11-6)
+
+- Made history local to message editor tab separate from global history. 
+- Disabled history when output is hidden.
+
+## Version v2.2.5 (2025-11-1)
+
+- Added Hackvertor history
+- Remembered tab state
+- UI fixes to tab panel
+- Added setting to show output in message editor
+
+## Version v2.2.3 (2025-10-30)
+
+- Large refactor
+- Removed reflection in fake tags
+- Added helper methods for tag creation
+- Created registry instead of large switch statement
+
+## Version v2.1.28 (2025-10-29)
+
+- Added insert last tag context menu item
+
+## Version v2.1.27 (2025-10-23)
+
+- Added multiple new hotkeys
+- Fixed tag store display of description and code.
+
 ## Version v2.1.23 (2025-09-18)
 
 - Allowed AI in Tag Automator

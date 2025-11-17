@@ -5,6 +5,7 @@ import burp.hv.settings.InvalidTypeSettingException;
 import burp.hv.settings.UnregisteredSettingException;
 import burp.hv.tags.Tag;
 import burp.hv.tags.TagStore;
+import burp.hv.ui.TagFinderWindow;
 import burp.hv.utils.GridbagUtils;
 import burp.hv.utils.TagUtils;
 import burp.hv.utils.Utils;
@@ -37,27 +38,33 @@ import static java.awt.GridBagConstraints.*;
 import static java.awt.GridBagConstraints.BOTH;
 
 public class HackvertorPanel extends JPanel {
-    
+
     private final Hackvertor hackvertor;
     private final HackvertorInput inputArea;
     private final HackvertorInput outputArea;
     private JTabbedPane tabs;
+    private final HackvertorHistory history;
+    private boolean isNavigatingHistory = false;
+    private String lastAddedInput = "";
+    private String lastAddedOutput = "";
+    private JLabel historyPositionLabel;
     
-    public HackvertorPanel(Hackvertor hackvertor, boolean showLogo, boolean hideOutput){
+    public HackvertorPanel(Hackvertor hackvertor, boolean showLogo, boolean hideOutput, boolean isMessageEditor){
         super(new GridBagLayout());
         this.hackvertor = hackvertor;
         this.inputArea = new HackvertorInput();
         this.outputArea = new HackvertorInput();
+        this.history = new HackvertorHistory(isMessageEditor);
         Utils.configureTextArea(this.inputArea);
         Utils.configureTextArea(this.outputArea);
-        buildPanel(showLogo, hideOutput);
+        buildPanel(showLogo, hideOutput, isMessageEditor);
     }
 
     public JTabbedPane getTabs() {
         return tabs;
     }
 
-    private void buildPanel(boolean showLogo, boolean hideOutput){
+    private void buildPanel(boolean showLogo, boolean hideOutput, boolean isMessageEditor){
         tabs = buildTabbedPane(hideOutput);
         JPanel topBar = new JPanel(new GridBagLayout());
         topBar.setPreferredSize(new Dimension(-1, 100));
@@ -85,7 +92,7 @@ public class HackvertorPanel extends JPanel {
         final JScrollPane hexScroll = new JScrollPane(hexView);
         hexScroll.setPreferredSize(new Dimension(-1, 100));
         hexScroll.setMinimumSize(new Dimension(-1, 100));
-        JPanel buttonsPanel = new JPanel(new GridLayout(1, 0, 10, 0));
+        JPanel buttonsPanel = new JPanel(new GridBagLayout());
         inputArea.setLineWrap(true);
         inputArea.setRows(0);
         final UndoManager undo = new UndoManager();
@@ -147,6 +154,9 @@ public class HackvertorPanel extends JPanel {
                         queue, new ThreadPoolExecutor.DiscardOldestPolicy());
 
                 public void scheduleUpdate() {
+                    if (isNavigatingHistory) {
+                        return;
+                    }
                     executorService.submit(() -> {
                         String output = hackvertor.convert(inputArea.getText(), null);
                         try {
@@ -156,6 +166,7 @@ public class HackvertorPanel extends JPanel {
                             e.printStackTrace();
                         }
                         outputArea.setCaretPosition(0);
+                        addToHistory();
                     });
                 }
 
@@ -168,11 +179,19 @@ public class HackvertorPanel extends JPanel {
                 public void insertUpdate(DocumentEvent documentEvent) {
                     updateLen();
                     scheduleUpdate();
+                    if (!isNavigatingHistory) {
+                        history.resetIndex();
+                        updateHistoryPositionLabel();
+                    }
                 }
 
                 public void removeUpdate(DocumentEvent documentEvent) {
                     updateLen();
                     scheduleUpdate();
+                    if (!isNavigatingHistory) {
+                        history.resetIndex();
+                        updateHistoryPositionLabel();
+                    }
                 }
 
                 private void updateLen() {
@@ -279,6 +298,7 @@ public class HackvertorPanel extends JPanel {
             }
         });
         final JButton swapButton = new JButton("Swap");
+        swapButton.setToolTipText("Swap input and output content");
         if (!isNativeTheme && !isDarkTheme) {
             swapButton.setBackground(Color.black);
             swapButton.setForeground(Color.white);
@@ -292,6 +312,7 @@ public class HackvertorPanel extends JPanel {
         });
 
         final JButton selectInputButton = new JButton("Select input");
+        selectInputButton.setToolTipText("Select all text in the input area");
         selectInputButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 inputArea.requestFocus();
@@ -304,6 +325,7 @@ public class HackvertorPanel extends JPanel {
         }
 
         final JButton selectOutputButton = new JButton("Select output");
+        selectOutputButton.setToolTipText("Select all text in the output area");
         selectOutputButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 outputArea.requestFocus();
@@ -316,6 +338,7 @@ public class HackvertorPanel extends JPanel {
         }
 
         final JButton clearTagsButton = new JButton("Clear tags");
+        clearTagsButton.setToolTipText("Remove all Hackvertor tags from input");
         clearTagsButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 String input = inputArea.getText();
@@ -330,6 +353,7 @@ public class HackvertorPanel extends JPanel {
         }
 
         final JButton clearButton = new JButton("Clear");
+        clearButton.setToolTipText("Clear both input and output areas");
         clearButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 inputArea.setText("");
@@ -343,6 +367,7 @@ public class HackvertorPanel extends JPanel {
         }
 
         final JButton pasteInsideButton = new JButton("Paste inside tags");
+        pasteInsideButton.setToolTipText("Paste clipboard content inside existing Hackvertor tags");
         pasteInsideButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 outputArea.setText("");
@@ -391,10 +416,12 @@ public class HackvertorPanel extends JPanel {
         }
 
         final JButton convertButton = new JButton("Convert");
+        convertButton.setToolTipText("Manually convert input to output");
         convertButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 executorService.submit(() -> {
                     outputArea.setText(hackvertor.convert(inputArea.getText(), null));
+                    addToHistory();
                 });
 
             }
@@ -405,12 +432,23 @@ public class HackvertorPanel extends JPanel {
         }
 
         final JButton decode = new JButton("Smart Decode Ctrl+Alt+D");
+        decode.setToolTipText("Automatically decode selected text (Ctrl+Alt+D)");
         decode.setEnabled(false);
         inputArea.getInputMap().put(KeyStroke.getKeyStroke("control alt D"), "smartDecode");
         SmartDecodeAction smartDecodeAction = new SmartDecodeAction(this.inputArea, null, hackvertor);
         inputArea.getActionMap().put("smartDecode", smartDecodeAction);
+
+        inputArea.getInputMap().put(KeyStroke.getKeyStroke("control alt F"), "findTag");
+        inputArea.getActionMap().put("findTag", new AbstractAction("findTag") {
+            public void actionPerformed(ActionEvent evt) {
+                ArrayList<Tag> tags = hackvertor.getTags();
+                TagFinderWindow finderWindow = new TagFinderWindow(HackvertorExtension.montoyaApi, inputArea, tags);
+                finderWindow.show();
+            }
+        });
         decode.addActionListener(smartDecodeAction);
         JButton rehydrateTagExecutionKey = new JButton("Rehydrate Tags");
+        rehydrateTagExecutionKey.setToolTipText("Replace tag execution keys in selected text with your current key");
         rehydrateTagExecutionKey.setEnabled(false);
         this.inputArea.addCaretListener(new CaretListener() {
             @Override
@@ -426,21 +464,140 @@ public class HackvertorPanel extends JPanel {
                 this.inputArea.replaceSelection(existingText.replaceAll("[a-f0-9]{32}", tagCodeExecutionKey));
             }
         });
-        buttonsPanel.add(clearButton);
-        buttonsPanel.add(clearTagsButton);
-        buttonsPanel.add(rehydrateTagExecutionKey);
-        if(!hideOutput) {
-            buttonsPanel.add(swapButton);
+
+        final JButton firstButton = new JButton("⏮");
+        firstButton.setEnabled(!hideOutput);
+        firstButton.setToolTipText("First history entry");
+        firstButton.setPreferredSize(new Dimension(50, firstButton.getPreferredSize().height));
+        firstButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                navigateToFirst();
+            }
+        });
+        if (!isNativeTheme && !isDarkTheme) {
+            firstButton.setForeground(Color.white);
+            firstButton.setBackground(Color.black);
         }
-        buttonsPanel.add(selectInputButton);
+
+        final JButton previousButton = new JButton("←");
+        previousButton.setEnabled(!hideOutput);
+        previousButton.setToolTipText("Previous history");
+        previousButton.setPreferredSize(new Dimension(50, previousButton.getPreferredSize().height));
+        previousButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                navigateHistory(true);
+            }
+        });
+        if (!isNativeTheme && !isDarkTheme) {
+            previousButton.setForeground(Color.white);
+            previousButton.setBackground(Color.black);
+        }
+
+        historyPositionLabel = new JLabel("0/0");
+        historyPositionLabel.setEnabled(!hideOutput);
+        historyPositionLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        historyPositionLabel.setToolTipText("History position");
+        updateHistoryPositionLabel();
+
+        final JButton nextButton = new JButton("→");
+        nextButton.setToolTipText("Next history");
+        nextButton.setEnabled(!hideOutput);
+        nextButton.setPreferredSize(new Dimension(50, nextButton.getPreferredSize().height));
+        nextButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                navigateHistory(false);
+            }
+        });
+        if (!isNativeTheme && !isDarkTheme) {
+            nextButton.setForeground(Color.white);
+            nextButton.setBackground(Color.black);
+        }
+
+        final JButton lastButton = new JButton("⏭");
+        lastButton.setEnabled(!hideOutput);
+        lastButton.setToolTipText("Last history entry");
+        lastButton.setPreferredSize(new Dimension(50, lastButton.getPreferredSize().height));
+        lastButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                navigateToLast();
+            }
+        });
+        if (!isNativeTheme && !isDarkTheme) {
+            lastButton.setForeground(Color.white);
+            lastButton.setBackground(Color.black);
+        }
+
+        final JButton clearHistoryButton = new JButton("Clear history");
+        clearHistoryButton.setToolTipText("Clear all Hackvertor history");
+        clearHistoryButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                int result = JOptionPane.showConfirmDialog(
+                    HackvertorPanel.this,
+                    "Are you sure you want to clear all Hackvertor history?",
+                    "Clear History",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.QUESTION_MESSAGE
+                );
+                if (result == JOptionPane.YES_OPTION) {
+                    history.clear();
+                    lastAddedInput = "";
+                    lastAddedOutput = "";
+                    updateHistoryPositionLabel();
+                    JOptionPane.showMessageDialog(
+                        HackvertorPanel.this,
+                        "Hackvertor history has been cleared.",
+                        "History Cleared",
+                        JOptionPane.INFORMATION_MESSAGE
+                    );
+                }
+            }
+        });
+        if (!isNativeTheme && !isDarkTheme) {
+            clearHistoryButton.setForeground(Color.white);
+            clearHistoryButton.setBackground(Color.black);
+        }
+
+        java.util.List<JComponent> buttonComponents = new java.util.ArrayList<>();
+        buttonComponents.add(clearButton);
+        buttonComponents.add(firstButton);
+        buttonComponents.add(previousButton);
+        buttonComponents.add(historyPositionLabel);
+        buttonComponents.add(nextButton);
+        buttonComponents.add(lastButton);
+        buttonComponents.add(clearHistoryButton);
+        buttonComponents.add(clearTagsButton);
+        buttonComponents.add(rehydrateTagExecutionKey);
         if(!hideOutput) {
-            buttonsPanel.add(selectOutputButton);
-            buttonsPanel.add(pasteInsideButton);
-            buttonsPanel.add(decode);
-            buttonsPanel.add(convertButton);
+            buttonComponents.add(swapButton);
+        }
+        buttonComponents.add(selectInputButton);
+        if(!hideOutput) {
+            buttonComponents.add(selectOutputButton);
+            buttonComponents.add(pasteInsideButton);
+            buttonComponents.add(decode);
+            buttonComponents.add(convertButton);
         } else {
-            buttonsPanel.add(decode);
+            buttonComponents.add(decode);
         }
+
+        int fitIndices = 0;
+        int decodeButtonIndex = -1;
+        if (!isMessageEditor) {
+            fitIndices |= (1 << 1);
+            fitIndices |= (1 << 2);
+            fitIndices |= (1 << 3);
+            fitIndices |= (1 << 4);
+            fitIndices |= (1 << 5);
+        } else {
+            for (int i = 0; i < buttonComponents.size(); i++) {
+                if (buttonComponents.get(i) == decode) {
+                    decodeButtonIndex = i;
+                    break;
+                }
+            }
+        }
+
+        GridLikeLayout.apply(buttonsPanel, buttonComponents, isMessageEditor ? 2 : 1, fitIndices, decodeButtonIndex);
         GridBagConstraints c = GridbagUtils.createConstraints(1, 0, 1, GridBagConstraints.NONE, 0, 0, 0, 0, CENTER);
         c.anchor = FIRST_LINE_END;
         c.ipadx = 20;
@@ -598,5 +755,81 @@ public class HackvertorPanel extends JPanel {
 
     public HackvertorInput getOutputArea() {
         return outputArea;
+    }
+
+    private void navigateHistory(boolean isPrevious) {
+        HackvertorHistory.HistoryEntry entry = isPrevious ? history.getPrevious() : history.getNext();
+        if (entry != null) {
+            isNavigatingHistory = true;
+            inputArea.setText(entry.getInput());
+            outputArea.setText(entry.getOutput());
+            updateHistoryPositionLabel();
+            SwingUtilities.invokeLater(() -> {
+                isNavigatingHistory = false;
+            });
+        }
+    }
+
+    private void navigateToFirst() {
+        HackvertorHistory.HistoryEntry entry = history.getFirst();
+        if (entry != null) {
+            isNavigatingHistory = true;
+            inputArea.setText(entry.getInput());
+            outputArea.setText(entry.getOutput());
+            updateHistoryPositionLabel();
+            SwingUtilities.invokeLater(() -> {
+                isNavigatingHistory = false;
+            });
+        }
+    }
+
+    private void navigateToLast() {
+        HackvertorHistory.HistoryEntry entry = history.getLast();
+        if (entry != null) {
+            isNavigatingHistory = true;
+            inputArea.setText(entry.getInput());
+            outputArea.setText(entry.getOutput());
+            updateHistoryPositionLabel();
+            SwingUtilities.invokeLater(() -> {
+                isNavigatingHistory = false;
+            });
+        }
+    }
+
+    private void addToHistory() {
+        if (isNavigatingHistory) {
+            return;
+        }
+
+        String input = inputArea.getText();
+        String output = outputArea.getText();
+
+        // Only add to history if both input exists and either input or output has changed
+        if (!input.isEmpty() && (!input.equals(lastAddedInput) || !output.equals(lastAddedOutput))) {
+            history.addEntry(input, output);
+            lastAddedInput = input;
+            lastAddedOutput = output;
+            updateHistoryPositionLabel();
+        }
+    }
+
+    private void updateHistoryPositionLabel() {
+        if (historyPositionLabel != null) {
+            int size = history.size();
+            if (size == 0) {
+                historyPositionLabel.setText("0/0");
+            } else {
+                int currentIndex = history.getCurrentIndex();
+                // Display as 1-based index for user friendliness
+                historyPositionLabel.setText((currentIndex + 1) + "/" + size);
+            }
+        }
+    }
+
+    public void refreshHistory() {
+        if (history != null) {
+            history.reloadFromPersistence();
+            updateHistoryPositionLabel();
+        }
     }
 }
