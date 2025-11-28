@@ -10,6 +10,36 @@ Tags also support arguments. The find tag allows you to find a string by regex a
 
 # Changelog
 
+## Version v2.2.33 (2025-11-27)
+
+- Added category checkboxes and a message when all variants are copied, 
+- Made the filter using the tag name. Changed dimensions. 
+- Added filter to output preview 
+- Added the first layer tag as the name of the Repeater tab
+- Prevented dangerous categories from being shown in the MultiEncoderWindow. Added checkboxes to enable them. Made the window persist state in the project file when closed.
+
+## Version v2.2.26 (2025-11-26)
+
+- Fixed dialog problems
+- Added limits for multiencoder
+
+## Version v2.2.24 (2025-11-26)
+
+- Fixed deflate, base32 detection
+- Improved auto decoder (smart decoding)
+
+## Version v2.2.24 (2025-11-25)
+
+- Updated TagAutomator rules to allow multiple tools per rule
+- Added multi encoder window
+- Added websockets setting and websocket handler
+- Added copy to clipboard button, clear button and select all checkbox to the MultiEncoderWindow.
+- Fixed send to intruder
+- Added layers to MultiEncoderWindow
+- Added MultiEncoderWindow to the HackvertorExtension panel and added sendToHackvertor button
+- Fixed the layers to work correctly. The layers now apply the nesting
+- Added limits to MultiEncoderWindow
+
 ## Version v2.2.16 (2025-11-20)
 
 - Changed HTTP handler to allow interception when there are Tag Automation rules

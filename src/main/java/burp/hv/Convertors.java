@@ -321,9 +321,9 @@ public class Convertors {
         TAG_REGISTRY.put("bzip2_compress", (output, args, vars, custom, hv) -> bzip2_compress(output));
         TAG_REGISTRY.put("bzip2_decompress", (output, args, vars, custom, hv) -> bzip2_decompress(output));
         TAG_REGISTRY.put("deflate_compress", (output, args, vars, custom, hv) ->
-            deflate_compress(output, getBoolean(args, 0)));
+            deflate_compress(output, getString(args, 0)));
         TAG_REGISTRY.put("deflate_decompress", (output, args, vars, custom, hv) ->
-            deflate_decompress(output, getBoolean(args, 0)));
+            deflate_decompress(output));
 
         // SAML operations
         TAG_REGISTRY.put("saml", (output, args, vars, custom, hv) -> saml(output));
@@ -1219,60 +1219,58 @@ public class Convertors {
         }
     }
 
-    static String deflate_compress(String input, Boolean includeHeader) {
-        // Use Montoya API if available
-        if (HackvertorExtension.montoyaApi != null) {
-            try {
-                byte[] inputBytes = input.getBytes();
-                ByteArray compressed = HackvertorExtension.montoyaApi.utilities().compressionUtils()
-                        .compress(ByteArray.byteArray(inputBytes), CompressionType.DEFLATE);
-                return helpers.bytesToString(compressed.getBytes());
-            } catch (Exception e) {
-                return "Error compressing DEFLATE: " + e.toString();
-            }
-        }
-        // Fallback to legacy implementation for tests
-        ByteArrayOutputStream bos = new ByteArrayOutputStream(input.length());
-        CompressorOutputStream cos;
-        DeflateParameters params = new DeflateParameters();
-        params.setWithZlibHeader(includeHeader);
-        cos = new DeflateCompressorOutputStream(bos, params);
+    static String deflate_compress(String input, String compressionType) {
         try {
-            cos.write(input.getBytes());
-            cos.close();
-            byte[] compressed = bos.toByteArray();
+            byte[] inputBytes = helpers.stringToBytes(input);
+            java.util.zip.Deflater deflater;
+
+            if ("store".equalsIgnoreCase(compressionType)) {
+                deflater = new java.util.zip.Deflater(java.util.zip.Deflater.NO_COMPRESSION);
+            } else if ("fixed".equalsIgnoreCase(compressionType)) {
+                deflater = new java.util.zip.Deflater(java.util.zip.Deflater.BEST_SPEED);
+                deflater.setStrategy(java.util.zip.Deflater.HUFFMAN_ONLY);
+            } else {
+                deflater = new java.util.zip.Deflater(java.util.zip.Deflater.BEST_COMPRESSION);
+            }
+
+            deflater.setInput(inputBytes);
+            deflater.finish();
+
+            ByteArrayOutputStream bos = new ByteArrayOutputStream(inputBytes.length);
+            byte[] buffer = new byte[1024];
+            while (!deflater.finished()) {
+                int count = deflater.deflate(buffer);
+                bos.write(buffer, 0, count);
+            }
+            deflater.end();
             bos.close();
-            return helpers.bytesToString(compressed);
-        } catch (IOException e) {
+
+            return helpers.bytesToString(bos.toByteArray());
+        } catch (Exception e) {
             return "Error:" + e;
         }
     }
 
-    static String deflate_decompress(String input, Boolean includeHeader) {
-        // Use Montoya API if available
-        if (HackvertorExtension.montoyaApi != null) {
-            try {
-                byte[] inputBytes = helpers.stringToBytes(input);
-                ByteArray decompressed = HackvertorExtension.montoyaApi.utilities().compressionUtils()
-                        .decompress(ByteArray.byteArray(inputBytes), CompressionType.DEFLATE);
-                return new String(decompressed.getBytes());
-            } catch (Exception e) {
-                return "Error decompressing DEFLATE: " + e.toString();
-            }
-        }
-        // Fallback to legacy implementation for tests
-        ByteArrayInputStream bis = new ByteArrayInputStream(helpers.stringToBytes(input));
-        DeflateCompressorInputStream cis;
-        byte[] bytes;
+    static String deflate_decompress(String input) {
         try {
-            DeflateParameters params = new DeflateParameters();
-            params.setWithZlibHeader(includeHeader);
-            cis = new DeflateCompressorInputStream(bis, params);
-            bytes = IOUtils.toByteArray(cis);
-            cis.close();
-            bis.close();
-            return new String(bytes);
-        } catch (IOException e) {
+            byte[] inputBytes = helpers.stringToBytes(input);
+            java.util.zip.Inflater inflater = new java.util.zip.Inflater();
+            inflater.setInput(inputBytes);
+
+            ByteArrayOutputStream bos = new ByteArrayOutputStream(inputBytes.length);
+            byte[] buffer = new byte[1024];
+            while (!inflater.finished()) {
+                int count = inflater.inflate(buffer);
+                if (count == 0 && inflater.needsInput()) {
+                    break;
+                }
+                bos.write(buffer, 0, count);
+            }
+            inflater.end();
+            bos.close();
+
+            return helpers.bytesToString(bos.toByteArray());
+        } catch (Exception e) {
             return "Error:" + e;
         }
     }
@@ -1337,14 +1335,61 @@ public class Convertors {
     }
 
     static String saml(String input) {
-        return urlencode(base64Encode(deflate_compress(input, false)));
+        return urlencode(base64Encode(deflate_compress_raw(input)));
     }
+
     static String d_saml(String input) {
         String decodedUrl = decode_url(input);
         if(isBase64(decodedUrl, true)) {
-            return deflate_decompress(decode_base64(decodedUrl), false);
+            return deflate_decompress_raw(decode_base64(decodedUrl));
         } else {
-            return deflate_decompress(decode_base64(input), false);
+            return deflate_decompress_raw(decode_base64(input));
+        }
+    }
+
+    static String deflate_compress_raw(String input) {
+        try {
+            byte[] inputBytes = helpers.stringToBytes(input);
+            java.util.zip.Deflater deflater = new java.util.zip.Deflater(java.util.zip.Deflater.DEFAULT_COMPRESSION, true);
+            deflater.setInput(inputBytes);
+            deflater.finish();
+
+            ByteArrayOutputStream bos = new ByteArrayOutputStream(inputBytes.length);
+            byte[] buffer = new byte[1024];
+            while (!deflater.finished()) {
+                int count = deflater.deflate(buffer);
+                bos.write(buffer, 0, count);
+            }
+            deflater.end();
+            bos.close();
+
+            return helpers.bytesToString(bos.toByteArray());
+        } catch (Exception e) {
+            return "Error:" + e;
+        }
+    }
+
+    static String deflate_decompress_raw(String input) {
+        try {
+            byte[] inputBytes = helpers.stringToBytes(input);
+            java.util.zip.Inflater inflater = new java.util.zip.Inflater(true);
+            inflater.setInput(inputBytes);
+
+            ByteArrayOutputStream bos = new ByteArrayOutputStream(inputBytes.length);
+            byte[] buffer = new byte[1024];
+            while (!inflater.finished()) {
+                int count = inflater.inflate(buffer);
+                if (count == 0 && inflater.needsInput()) {
+                    break;
+                }
+                bos.write(buffer, 0, count);
+            }
+            inflater.end();
+            bos.close();
+
+            return helpers.bytesToString(bos.toByteArray());
+        } catch (Exception e) {
+            return "Error:" + e;
         }
     }
 
@@ -3312,6 +3357,54 @@ public class Convertors {
     static Boolean isBase64(String str, Boolean checkStart) {
         return Pattern.compile((checkStart ? "^" : "") + "[a-zA-Z0-9+/]{4,}=*$", Pattern.CASE_INSENSITIVE).matcher(str).find() && str.length() % 4 == 0;
     }
+
+    private static final Pattern ASCII_PATTERN = Pattern.compile("^[\\x00-\\x7f]+$");
+    private static final Pattern PRINTABLE_ASCII_PATTERN = Pattern.compile("^[\\x09-\\x7f]+$");
+    private static final Pattern GZIP_PATTERN = Pattern.compile("^\\x1f\\x8b\\x08");
+    private static final Pattern DEFLATE_PATTERN = Pattern.compile("^\\x78[\\x01\\x5e\\x9c\\xda]");
+    private static final Pattern BINARY_PATTERN = Pattern.compile("[01]{4,}\\s+[01]{4,}");
+    private static final Pattern HEX_SPACED_PATTERN = Pattern.compile("(?:[0-9a-fA-F]{2}[\\s,\\-]?){3,}");
+    private static final Pattern HEX_PATTERN = Pattern.compile("^[0-9a-fA-F]+$");
+    private static final Pattern CHARCODE_PATTERN = Pattern.compile("\\d+[,\\s]+");
+    private static final Pattern NON_CHARCODE_PATTERN = Pattern.compile("[^\\d,\\s]");
+    private static final Pattern CSS_ESCAPE_PATTERN = Pattern.compile("(?:\\\\0{0,4}[0-9a-fA-F]{2}[\\s,\\-]?){3,}");
+    private static final Pattern HEX_ESCAPE_PATTERN = Pattern.compile("\\\\x[0-9a-f]{2}", Pattern.CASE_INSENSITIVE);
+    private static final Pattern OCTAL_ESCAPE_PATTERN = Pattern.compile("\\\\[0-9]{1,3}");
+    private static final Pattern UNICODE_ESCAPE_PATTERN = Pattern.compile("\\\\u[0-9a-f]{4}", Pattern.CASE_INSENSITIVE);
+    private static final Pattern HTML_ENTITY_PATTERN = Pattern.compile("&[a-zA-Z]+;", Pattern.CASE_INSENSITIVE);
+    private static final Pattern HEX_ENTITY_PATTERN = Pattern.compile("&#x?[0-9a-f]+;?", Pattern.CASE_INSENSITIVE);
+    private static final Pattern URL_ENCODE_PATTERN = Pattern.compile("%[0-9a-f]{2}", Pattern.CASE_INSENSITIVE);
+    private static final Pattern JWT_PATTERN = Pattern.compile("^[a-zA-Z0-9\\-_.]+$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern BASE32_PATTERN = Pattern.compile("^[A-Z2-7]+=*$");
+    private static final Pattern WORDS_PATTERN = Pattern.compile("(?:[a-zA-Z]+[\\s,-]){2,}");
+    private static final Pattern LOWERCASE_WORDS_PATTERN = Pattern.compile("(?:[a-z]+[\\s,-]){2,}");
+    private static final Pattern LOWERCASE_ONLY_PATTERN = Pattern.compile("^[a-z]{10,}$");
+    private static final Pattern BYTE_PATTERN = Pattern.compile("^[\\x00-\\xff]+$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern BASE58_PATTERN = Pattern.compile("^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+$");
+    private static final Pattern BASE64URL_PATTERN = Pattern.compile("^[A-Za-z0-9_-]+$");
+    private static final Pattern QUOTED_PRINTABLE_PATTERN = Pattern.compile("=[0-9A-Fa-f]{2}");
+    private static final Pattern UTF7_PATTERN = Pattern.compile("\\+[A-Za-z0-9+/]*-");
+
+    private static boolean isAscii(String str) {
+        return ASCII_PATTERN.matcher(str).find();
+    }
+
+    private static boolean isPrintableAscii(String str) {
+        return PRINTABLE_ASCII_PATTERN.matcher(str).find();
+    }
+
+    private static boolean isGzip(String str) {
+        return GZIP_PATTERN.matcher(str).find();
+    }
+
+    private static boolean isDeflate(String str) {
+        return DEFLATE_PATTERN.matcher(str).find();
+    }
+
+    private static boolean isAsciiOrCompressed(String str) {
+        return isAscii(str) || isGzip(str) || isDeflate(str);
+    }
+
     static String auto_decode(String str) {
         return auto_decode_decrypt(str, true);
     }
@@ -3325,133 +3418,152 @@ public class Convertors {
         int repeat = 0;
         boolean matched;
         String test;
-        StringBuilder encodingOpeningTags = new StringBuilder();
-        StringBuilder encodingClosingTags = new StringBuilder();
+        StringBuilder openTags = new StringBuilder();
+        StringBuilder closeTags = new StringBuilder();
         do {
             String startStr = str;
             matched = false;
-            int tagNo = new Random().nextInt(10000);
-            if (Pattern.compile("^\\x1f\\x8b\\x08").matcher(str).find()) {
+            if (isGzip(str)) {
                 str = gzip_decompress(str);
                 matched = true;
-                encodingOpeningTags.append("<@gzip_compress>");
-                encodingClosingTags.insert(0, "</@gzip_compress>");
+                appendTags(openTags, closeTags, "gzip_compress");
             }
-            if (Pattern.compile("[01]{4,}\\s+[01]{4,}").matcher(str).find()) {
+            if (isDeflate(str)) {
+                test = deflate_decompress(str);
+                if (!test.startsWith("Error:") && isAscii(test)) {
+                    str = test;
+                    matched = true;
+                    appendTags(openTags, closeTags, "deflate_compress");
+                }
+            }
+            if (BINARY_PATTERN.matcher(str).find()) {
                 str = bin2ascii(str);
                 matched = true;
-                encodingOpeningTags.append("<@ascii2bin>");
-                encodingClosingTags.insert(0, "</@ascii2bin>");
+                appendTags(openTags, closeTags, "ascii2bin");
             }
-            if (Pattern.compile("(?:[0-9a-fA-F]{2}[\\s,\\-]?){3,}").matcher(str).find()) {
+            if (HEX_SPACED_PATTERN.matcher(str).find()) {
                 test = hex2ascii(str);
-                if (Pattern.compile("^[\\x09-\\x7f]+$", Pattern.CASE_INSENSITIVE).matcher(test).find()) {
+                if (isAsciiOrCompressed(test)) {
                     str = test;
-                    encodingOpeningTags.append("<@ascii2hex(\" \")>");
-                    encodingClosingTags.insert(0, "</@ascii2hex>");
+                    appendTags(openTags, closeTags, "ascii2hex(\" \")", "ascii2hex");
                     repeat++;
                     continue;
                 }
             }
-            if (Pattern.compile("^[0-9a-fA-F]+$").matcher(str).find() && str.length() % 2 == 0) {
+            if (HEX_PATTERN.matcher(str).find() && str.length() % 2 == 0) {
                 str = hex2ascii(str);
                 matched = true;
-                encodingOpeningTags.append("<@ascii2hex(\"\")>");
-                encodingClosingTags.insert(0, "</@ascii2hex>");
+                appendTags(openTags, closeTags, "ascii2hex(\"\")", "ascii2hex");
             }
-            if (!Pattern.compile("[^\\d,\\s]").matcher(str).find() && Pattern.compile("\\d+[,\\s]+").matcher(str).find()) {
+            if (!NON_CHARCODE_PATTERN.matcher(str).find() && CHARCODE_PATTERN.matcher(str).find()) {
                 str = from_charcode(str);
                 matched = true;
-                encodingOpeningTags.append("<@to_charcode>");
-                encodingClosingTags.insert(0, "</@to_charcode>");
+                appendTags(openTags, closeTags, "to_charcode");
             }
-            if (Pattern.compile("(?:\\\\0{0,4}[0-9a-fA-F]{2}[\\s,\\-]?){3,}").matcher(str).find()) {
+            if (CSS_ESCAPE_PATTERN.matcher(str).find()) {
                 test = decode_css_escapes(str);
-                if (Pattern.compile("^[\\x09-\\x7f]+$", Pattern.CASE_INSENSITIVE).matcher(test).find()) {
+                if (isPrintableAscii(test)) {
                     str = test;
                     matched = true;
-                    encodingOpeningTags.append("<@css_escapes>");
-                    encodingClosingTags.insert(0, "</@css_escapes>");
+                    appendTags(openTags, closeTags, "css_escapes");
                 }
             }
-            if (Pattern.compile("\\\\x[0-9a-f]{2}", Pattern.CASE_INSENSITIVE).matcher(str).find()) {
+            if (HEX_ESCAPE_PATTERN.matcher(str).find()) {
                 test = decode_js_string(str);
-                if (Pattern.compile("^[\\x09-\\x7f]+$", Pattern.CASE_INSENSITIVE).matcher(test).find()) {
+                if (isPrintableAscii(test)) {
                     str = test;
                     matched = true;
-                    encodingOpeningTags.append("<@hex_escapes>");
-                    encodingClosingTags.insert(0, "</@hex_escapes>");
+                    appendTags(openTags, closeTags, "hex_escapes");
                 }
             }
-            if (Pattern.compile("\\\\[0-9]{1,3}").matcher(str).find()) {
+            if (OCTAL_ESCAPE_PATTERN.matcher(str).find()) {
                 test = decode_js_string(str);
-                if (Pattern.compile("^[\\x09-\\x7f]+$", Pattern.CASE_INSENSITIVE).matcher(test).find()) {
+                if (isPrintableAscii(test)) {
                     str = test;
                     matched = true;
-                    encodingOpeningTags.append("<@octal_escapes>");
-                    encodingClosingTags.insert(0, "</@octal_escapes>");
+                    appendTags(openTags, closeTags, "octal_escapes");
                 }
             }
-            if (Pattern.compile("\\\\u[0-9a-f]{4}", Pattern.CASE_INSENSITIVE).matcher(str).find()) {
+            if (UNICODE_ESCAPE_PATTERN.matcher(str).find()) {
                 test = decode_js_string(str);
-                if (Pattern.compile("^[\\x09-\\x7f]+$", Pattern.CASE_INSENSITIVE).matcher(test).find()) {
+                if (isPrintableAscii(test)) {
                     str = test;
                     matched = true;
-                    encodingOpeningTags.append("<@unicode_escapes>");
-                    encodingClosingTags.insert(0, "</@unicode_escapes>");
+                    appendTags(openTags, closeTags, "unicode_escapes");
                 }
             }
-            if (Pattern.compile("&[a-zA-Z]+;", Pattern.CASE_INSENSITIVE).matcher(str).find()) {
+            if (HTML_ENTITY_PATTERN.matcher(str).find()) {
                 str = decode_html5_entities(str);
                 matched = true;
-                encodingOpeningTags.append("<@html_entities>");
-                encodingClosingTags.insert(0, "</@html_entities>");
+                appendTags(openTags, closeTags, "html_entities");
             }
-            if (Pattern.compile("&#x?[0-9a-f]+;?", Pattern.CASE_INSENSITIVE).matcher(str).find()) {
+            if (HEX_ENTITY_PATTERN.matcher(str).find()) {
                 str = decode_html5_entities(str);
                 matched = true;
-                encodingOpeningTags.append("<@hex_entities>");
-                encodingClosingTags.insert(0, "</@hex_entities>");
+                appendTags(openTags, closeTags, "hex_entities");
             }
-            if (Pattern.compile("%[0-9a-f]{2}", Pattern.CASE_INSENSITIVE).matcher(str).find()) {
+            if (URL_ENCODE_PATTERN.matcher(str).find()) {
                 boolean plus = str.contains("+");
                 str = decode_url(str);
                 matched = true;
-                if (plus) {
-                    encodingOpeningTags.append("<@urlencode>");
-                    encodingClosingTags.insert(0, "</@urlencode>");
-                } else {
-                    encodingOpeningTags.append("<@urlencode_not_plus>");
-                    encodingClosingTags.insert(0, "</@urlencode_not_plus>");
-                }
+                appendTags(openTags, closeTags, plus ? "urlencode" : "urlencode_not_plus");
             }
-            if (Pattern.compile("^[a-zA-Z0-9\\-_.]+$", Pattern.CASE_INSENSITIVE).matcher(str).find()) {
+            if (JWT_PATTERN.matcher(str).find()) {
                 String[] parts = str.split("\\.");
                 if (parts.length == 3 && !d_jwt_get_header(str).equals("Invalid token")) {
                     return d_jwt_get_header(str) + "\n" + d_jwt_get_payload(str) + "\n" + decode_base64url(parts[2]);
                 }
             }
-            if (isBase64(str, true)) {
-                test = decode_base64(str);
-                if (Pattern.compile("^[\\x00-\\x7f]+$", Pattern.CASE_INSENSITIVE).matcher(test).find()) {
+            if (BASE32_PATTERN.matcher(str).find() && str.length() % 8 == 0) {
+                test = decode_base32(str);
+                if (isAsciiOrCompressed(test)) {
                     str = test;
                     matched = true;
-                    encodingOpeningTags.append("<@base64>");
-                    encodingClosingTags.insert(0, "</@base64>");
+                    appendTags(openTags, closeTags, "base32");
                 }
             }
-
-            if (Pattern.compile("[A-Z0-9+/]{4,}=*$", Pattern.CASE_INSENSITIVE).matcher(str).find() && str.length() % 4 == 0 && !matched) {
-                test = decode_base32(str);
-                if (Pattern.compile("^[\\x00-\\x7f]+$", Pattern.CASE_INSENSITIVE).matcher(test).find()) {
+            if (isBase64(str, true) && !matched) {
+                test = decode_base64(str);
+                if (isAsciiOrCompressed(test)) {
                     str = test;
                     matched = true;
-                    encodingOpeningTags.append("<@base32>");
-                    encodingClosingTags.insert(0, "</@base32>");
+                    appendTags(openTags, closeTags, "base64");
+                }
+            }
+            if (BASE64URL_PATTERN.matcher(str).find() && str.length() >= 4 && !matched) {
+                test = decode_base64url(str);
+                if (isAsciiOrCompressed(test)) {
+                    str = test;
+                    matched = true;
+                    appendTags(openTags, closeTags, "base64url");
+                }
+            }
+            if (BASE58_PATTERN.matcher(str).find() && str.length() >= 4 && !matched) {
+                test = decode_base58(str);
+                if (isPrintableAscii(test)) {
+                    str = test;
+                    matched = true;
+                    appendTags(openTags, closeTags, "base58");
+                }
+            }
+            if (QUOTED_PRINTABLE_PATTERN.matcher(str).find() && !matched) {
+                test = d_quoted_printable(str);
+                if (!test.startsWith("Error") && isPrintableAscii(test)) {
+                    str = test;
+                    matched = true;
+                    appendTags(openTags, closeTags, "quoted_printable");
+                }
+            }
+            if (UTF7_PATTERN.matcher(str).find() && !matched) {
+                test = utf7Decode(str);
+                if (isPrintableAscii(test) && !test.equals(str)) {
+                    str = test;
+                    matched = true;
+                    appendTags(openTags, closeTags, "utf7", "utf7");
                 }
             }
             if (decrypt) {
-                if (Pattern.compile("(?:[a-zA-Z]+[\\s,-]){2,}").matcher(str).find()) {
+                if (WORDS_PATTERN.matcher(str).find()) {
                     double total = 0;
                     double bestScore = -9999999;
                     int n = 0;
@@ -3464,7 +3576,7 @@ public class Convertors {
                             n = i;
                         }
                     }
-                    double average = (total / 25);
+                    double average = total / 25;
                     if ((((average - bestScore) / average) * 100) > 20) {
                         String originalString = str;
                         str = rotN(str, n);
@@ -3475,11 +3587,11 @@ public class Convertors {
                                 break;
                             }
                         }
-                        encodingOpeningTags.append("<@rotN(").append(n).append(")>");
-                        encodingClosingTags.insert(0, "</@rotN>");
+                        openTags.append("<@rotN(").append(n).append(")>");
+                        closeTags.insert(0, "</@rotN>");
                     }
                 }
-                if (Pattern.compile("(?:[a-z]+[\\s,-]){2,}").matcher(str).find()) {
+                if (LOWERCASE_WORDS_PATTERN.matcher(str).find()) {
                     double total = 0;
                     double bestScore = -9999999;
                     int key1 = 0;
@@ -3498,25 +3610,23 @@ public class Convertors {
                             }
                         }
                     }
-                    double average = (total / 25);
+                    double average = total / 25;
                     if ((((average - bestScore) / average) * 100) > 60 && (key1 != 1 && key2 != 0)) {
                         str = affine_decrypt(str, key1, key2);
                         matched = true;
-                        encodingOpeningTags.append("<@affine_encrypt(").append(key1).append(",").append(key2).append(")>");
-                        encodingClosingTags.insert(0, "</@affine_encrypt>");
+                        openTags.append("<@affine_encrypt(").append(key1).append(",").append(key2).append(")>");
+                        closeTags.insert(0, "</@affine_encrypt>");
                     }
                 }
-
-                if (Pattern.compile("(?:[a-z]+[\\s,-]){2,}").matcher(str).find()) {
+                if (LOWERCASE_WORDS_PATTERN.matcher(str).find()) {
                     String plaintext = atbash_decrypt(str);
                     if (is_like_english(plaintext) - is_like_english(str) >= 200) {
                         str = plaintext;
                         matched = true;
-                        encodingOpeningTags.append("<@atbash_encrypt>");
-                        encodingClosingTags.insert(0, "</@atbash_encrypt>");
+                        appendTags(openTags, closeTags, "atbash_encrypt");
                     }
                 }
-                if (Pattern.compile("^[a-z]{10,}$").matcher(str).find()) {
+                if (LOWERCASE_ONLY_PATTERN.matcher(str).find()) {
                     double total = 0;
                     double bestScore = -9999999;
                     int n = 0;
@@ -3530,27 +3640,25 @@ public class Convertors {
                             n = i;
                         }
                     }
-                    double average = (total / max - 1);
+                    double average = total / (max - 1);
                     if ((((average - bestScore) / average) * 100) > 20) {
                         str = rail_fence_decrypt(str, n);
                         matched = true;
-                        encodingOpeningTags.append("<@rail_fence_encrypt(").append(n).append(")>");
-                        encodingClosingTags.insert(0, "</@rail_fence_encrypt>");
+                        openTags.append("<@rail_fence_encrypt(").append(n).append(")>");
+                        closeTags.insert(0, "</@rail_fence_encrypt>");
                     }
                 }
-
-                if (Pattern.compile("^[\\x00-\\xff]+$", Pattern.CASE_INSENSITIVE).matcher(str).find()) {
+                if (BYTE_PATTERN.matcher(str).find()) {
                     int lenGuess = guess_key_length(str);
                     test = xor_decrypt(str, lenGuess, false);
                     int alphaCount = test.replaceAll("[^a-zA-Z0-9]+", "").length();
-                    int strLen = str.length();
-                    float percent = (((float) alphaCount / strLen) * 100);
+                    float percent = ((float) alphaCount / str.length()) * 100;
                     if (is_like_english(test) < is_like_english(str) && percent > 20) {
                         String key = xor_decrypt(str, lenGuess, true).replaceAll("\"", "\\\"");
                         str = test;
                         matched = true;
-                        encodingOpeningTags.append("<@xor(\"").append(key).append("\")>");
-                        encodingClosingTags.insert(0, "</@xor>");
+                        openTags.append("<@xor(\"").append(key).append("\")>");
+                        closeTags.insert(0, "</@xor>");
                     }
                 }
             }
@@ -3559,7 +3667,16 @@ public class Convertors {
             }
             repeat++;
         } while (repeat < repeats);
-        return encodingOpeningTags + str + encodingClosingTags;
+        return openTags + str + closeTags;
+    }
+
+    private static void appendTags(StringBuilder openTags, StringBuilder closeTags, String tagName) {
+        appendTags(openTags, closeTags, tagName, tagName);
+    }
+
+    private static void appendTags(StringBuilder openTags, StringBuilder closeTags, String openTagName, String closeTagName) {
+        openTags.append("<@").append(openTagName).append(">");
+        closeTags.insert(0, "</@" + closeTagName + ">");
     }
 
     static String range(String str, int from, int to, int step) {
