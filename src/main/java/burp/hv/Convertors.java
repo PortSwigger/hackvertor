@@ -405,6 +405,7 @@ public class Convertors {
         // Auto decode operations
         TAG_REGISTRY.put("auto_decode", (output, args, vars, custom, hv) -> auto_decode(output));
         TAG_REGISTRY.put("auto_decode_no_decrypt", (output, args, vars, custom, hv) -> auto_decode_no_decrypt(output));
+        TAG_REGISTRY.put("auto_decode_partial", (output, args, vars, custom, hv) -> auto_decode_partial(output));
 
         // Base encoding operations
         TAG_REGISTRY.put("base32", (output, args, vars, custom, hv) -> base32_encode(output));
@@ -3359,7 +3360,7 @@ public class Convertors {
     }
 
     private static final Pattern ASCII_PATTERN = Pattern.compile("^[\\x00-\\x7f]+$");
-    private static final Pattern PRINTABLE_ASCII_PATTERN = Pattern.compile("^[\\x09-\\x7f]+$");
+    private static final Pattern PRINTABLE_ASCII_OR_SPACES_PATTERN = Pattern.compile("^[\\x09\\x0d\\x0a\\x20-\\x7f]+$");
     private static final Pattern GZIP_PATTERN = Pattern.compile("^\\x1f\\x8b\\x08");
     private static final Pattern DEFLATE_PATTERN = Pattern.compile("^\\x78[\\x01\\x5e\\x9c\\xda]");
     private static final Pattern BINARY_PATTERN = Pattern.compile("[01]{4,}\\s+[01]{4,}");
@@ -3385,12 +3386,56 @@ public class Convertors {
     private static final Pattern QUOTED_PRINTABLE_PATTERN = Pattern.compile("=[0-9A-Fa-f]{2}");
     private static final Pattern UTF7_PATTERN = Pattern.compile("\\+[A-Za-z0-9+/]*-");
 
+    private static final Pattern HEX_ESCAPE_SEQUENCE_PATTERN = Pattern.compile("(?:\\\\x[0-9a-fA-F]{2})+");
+    private static final Pattern OCTAL_ESCAPE_SEQUENCE_PATTERN = Pattern.compile("(?:\\\\[0-3]?[0-7]{1,2})+");
+    private static final Pattern UNICODE_ESCAPE_SEQUENCE_PATTERN = Pattern.compile("(?:\\\\u[0-9a-fA-F]{4})+");
+    private static final Pattern URL_ENCODE_SEQUENCE_PATTERN = Pattern.compile("(?:%[0-9a-fA-F]{2})+");
+    private static final Pattern HTML_ENTITY_SEQUENCE_PATTERN = Pattern.compile("(?:&[a-zA-Z]+;)+");
+    private static final Pattern HEX_ENTITY_SEQUENCE_PATTERN = Pattern.compile("(?:&#x?[0-9a-fA-F]+;?)+");
+    private static final Pattern QUOTED_PRINTABLE_SEQUENCE_PATTERN = Pattern.compile("(?:=[0-9A-Fa-f]{2})+");
+    private static final Pattern BINARY_SEQUENCE_PATTERN = Pattern.compile("(?:[01]{8}\\s+)+[01]{8}");
+    private static final Pattern HEX_SPACED_SEQUENCE_PATTERN = Pattern.compile("(?:[0-9a-fA-F]{2}[\\s,\\-]){4,}[0-9a-fA-F]{2}");
+    private static final Pattern UTF7_SEQUENCE_PATTERN = Pattern.compile("\\+[A-Za-z0-9+/]+-");
+    private static final Pattern CHARCODE_SEQUENCE_PATTERN = Pattern.compile("(?:\\d{2,3}[,\\s])+\\d{2,3}");
+    private static final Pattern BASE64_SEQUENCE_PATTERN = Pattern.compile("(?<![a-zA-Z0-9+/])[a-zA-Z0-9+/]{4,}={0,2}(?![a-zA-Z0-9+/=])");
+    private static final Pattern BASE32_SEQUENCE_PATTERN = Pattern.compile("(?<![A-Z2-7])[A-Z2-7]{4,}={0,6}(?![A-Z2-7=])");
+    private static final Pattern BASE64URL_SEQUENCE_PATTERN = Pattern.compile("(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*[_-][A-Za-z0-9_-]*(?![A-Za-z0-9_-])");
+    private static final Pattern BASE58_SEQUENCE_PATTERN = Pattern.compile("(?<![a-zA-Z0-9])[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{8,}(?![a-zA-Z0-9])");
+
     private static boolean isAscii(String str) {
         return ASCII_PATTERN.matcher(str).find();
     }
 
-    private static boolean isPrintableAscii(String str) {
-        return PRINTABLE_ASCII_PATTERN.matcher(str).find();
+    private static boolean isPrintableAsciiOrSpaces(String str) {
+        return PRINTABLE_ASCII_OR_SPACES_PATTERN.matcher(str).find();
+    }
+
+    private static boolean hasMajorityAlphaNum(String str) {
+        if (str.isEmpty()) {
+            return false;
+        }
+        int alphaNumCount = 0;
+        for (char c : str.toCharArray()) {
+            if (Character.isLetterOrDigit(c)) {
+                alphaNumCount++;
+            }
+        }
+        return alphaNumCount > str.length() / 2;
+    }
+
+    private static boolean isJsonLike(String str) {
+        String trimmed = str.trim();
+        return (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+               (trimmed.startsWith("[") && trimmed.endsWith("]"));
+    }
+
+    private static boolean isXmlOrHtmlLike(String str) {
+        String trimmed = str.trim();
+        if (!trimmed.startsWith("<") || !trimmed.endsWith(">")) {
+            return false;
+        }
+        return trimmed.contains("</") ||
+               (trimmed.startsWith("<!--") && trimmed.endsWith("-->"));
     }
 
     private static boolean isGzip(String str) {
@@ -3405,12 +3450,297 @@ public class Convertors {
         return isAscii(str) || isGzip(str) || isDeflate(str);
     }
 
+    private static boolean isValidBaseEncodedContent(String str) {
+        if (isGzip(str) || isDeflate(str)) {
+            return true;
+        }
+        if (!isPrintableAsciiOrSpaces(str)) {
+            return false;
+        }
+        return hasMajorityAlphaNum(str) || isJsonLike(str) || isXmlOrHtmlLike(str);
+    }
+
     static String auto_decode(String str) {
         return auto_decode_decrypt(str, true);
     }
 
     public static String auto_decode_no_decrypt(String str) {
         return auto_decode_decrypt(str, false);
+    }
+
+    public static String auto_decode_partial(String str) {
+        int maxIterations = 20;
+        int iteration = 0;
+        String previousStr;
+
+        do {
+            previousStr = str;
+            str = decodePartialEncodings(str);
+            iteration++;
+        } while (!str.equals(previousStr) && iteration < maxIterations);
+
+        return str;
+    }
+
+    private static String decodePartialEncodings(String str) {
+        List<EncodedMatch> matches = new ArrayList<>();
+
+        findMatches(str, HEX_ESCAPE_SEQUENCE_PATTERN, "hex_escape", matches);
+        findMatches(str, UNICODE_ESCAPE_SEQUENCE_PATTERN, "unicode_escape", matches);
+        findMatches(str, OCTAL_ESCAPE_SEQUENCE_PATTERN, "octal_escape", matches);
+        findMatches(str, URL_ENCODE_SEQUENCE_PATTERN, "url_encode", matches);
+        findMatches(str, HTML_ENTITY_SEQUENCE_PATTERN, "html_entity", matches);
+        findMatches(str, HEX_ENTITY_SEQUENCE_PATTERN, "hex_entity", matches);
+        findMatches(str, QUOTED_PRINTABLE_SEQUENCE_PATTERN, "quoted_printable", matches);
+        findMatches(str, BINARY_SEQUENCE_PATTERN, "binary", matches);
+        findMatches(str, HEX_SPACED_SEQUENCE_PATTERN, "hex_spaced", matches);
+        findMatches(str, UTF7_SEQUENCE_PATTERN, "utf7", matches);
+        findMatches(str, CHARCODE_SEQUENCE_PATTERN, "charcode", matches);
+        findMatches(str, BASE64_SEQUENCE_PATTERN, "base64", matches);
+        findMatches(str, BASE32_SEQUENCE_PATTERN, "base32", matches);
+        findMatches(str, BASE64URL_SEQUENCE_PATTERN, "base64url", matches);
+        findMatches(str, BASE58_SEQUENCE_PATTERN, "base58", matches);
+
+        if (matches.isEmpty()) {
+            return str;
+        }
+
+        matches.sort(Comparator.comparingInt(m -> m.start));
+
+        StringBuilder result = new StringBuilder();
+        int lastEnd = 0;
+
+        for (EncodedMatch match : matches) {
+            if (match.start < lastEnd) {
+                continue;
+            }
+
+            if (isInsideTag(str, match.start)) {
+                continue;
+            }
+
+            DecodeResult decodeResult = decodeMatchedSequence(match.matched, match.type);
+            if (decodeResult != null && !decodeResult.decoded.equals(match.matched) && isAsciiOrCompressed(decodeResult.decoded)) {
+                result.append(str, lastEnd, match.start);
+                DecompressResult decompressResult = decompressIfNeeded(decodeResult.decoded);
+                result.append(decodeResult.openTag);
+                result.append(decompressResult.openTags);
+                result.append(decompressResult.decoded);
+                result.append(decompressResult.closeTags);
+                result.append(decodeResult.closeTag);
+                lastEnd = match.end;
+            }
+        }
+
+        result.append(str.substring(lastEnd));
+        return result.toString();
+    }
+
+    private static void findMatches(String str, Pattern pattern, String type, List<EncodedMatch> matches) {
+        Matcher matcher = pattern.matcher(str);
+        while (matcher.find()) {
+            matches.add(new EncodedMatch(matcher.start(), matcher.end(), matcher.group(), type));
+        }
+    }
+
+    private static boolean isInsideTag(String str, int start) {
+        int openTagStart = str.lastIndexOf("<@", start);
+        if (openTagStart != -1) {
+            int openTagEnd = str.indexOf(">", openTagStart);
+            if (openTagEnd != -1 && start > openTagStart && start < openTagEnd) {
+                return true;
+            }
+        }
+        int closeTagStart = str.lastIndexOf("</@", start);
+        if (closeTagStart != -1) {
+            int closeTagEnd = str.indexOf(">", closeTagStart);
+            if (closeTagEnd != -1 && start > closeTagStart && start < closeTagEnd) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static DecodeResult decodeMatchedSequence(String encoded, String type) {
+        String decoded;
+        String tagName;
+        switch (type) {
+            case "hex_escape":
+                decoded = decode_js_string(encoded);
+                tagName = "hex_escapes";
+                break;
+            case "unicode_escape":
+                decoded = decode_js_string(encoded);
+                tagName = "unicode_escapes";
+                break;
+            case "octal_escape":
+                decoded = decode_js_string(encoded);
+                tagName = "octal_escapes";
+                break;
+            case "url_encode":
+                decoded = decode_url(encoded);
+                tagName = encoded.contains("+") ? "urlencode" : "urlencode_not_plus";
+                break;
+            case "html_entity":
+                decoded = decode_html5_entities(encoded);
+                tagName = "html_entities";
+                break;
+            case "hex_entity":
+                decoded = decode_html5_entities(encoded);
+                tagName = "hex_entities";
+                break;
+            case "quoted_printable":
+                decoded = d_quoted_printable(encoded);
+                if (decoded.startsWith("Error")) {
+                    return null;
+                }
+                tagName = "quoted_printable";
+                break;
+            case "binary":
+                decoded = bin2ascii(encoded);
+                tagName = "ascii2bin";
+                break;
+            case "hex_spaced":
+                decoded = hex2ascii(encoded);
+                tagName = "ascii2hex(\" \")";
+                break;
+            case "utf7":
+                decoded = utf7Decode(encoded);
+                if (decoded.equals(encoded)) {
+                    return null;
+                }
+                tagName = "utf7";
+                break;
+            case "charcode":
+                decoded = from_charcode(encoded);
+                tagName = "to_charcode";
+                break;
+            case "base64":
+                if (encoded.length() < 4 || encoded.length() % 4 != 0) {
+                    return null;
+                }
+                try {
+                    decoded = decode_base64(encoded);
+                    if (!isValidBaseEncodedContent(decoded)) {
+                        return null;
+                    }
+                } catch (Exception e) {
+                    return null;
+                }
+                tagName = "base64";
+                break;
+            case "base32":
+                if (encoded.length() < 8 || encoded.length() % 8 != 0) {
+                    return null;
+                }
+                try {
+                    decoded = decode_base32(encoded);
+                    if (!isValidBaseEncodedContent(decoded)) {
+                        return null;
+                    }
+                } catch (Exception e) {
+                    return null;
+                }
+                tagName = "base32";
+                break;
+            case "base64url":
+                if (encoded.length() < 8) {
+                    return null;
+                }
+                try {
+                    decoded = decode_base64url(encoded);
+                    if (!isValidBaseEncodedContent(decoded)) {
+                        return null;
+                    }
+                } catch (Exception e) {
+                    return null;
+                }
+                tagName = "base64url";
+                break;
+            case "base58":
+                if (encoded.length() < 4) {
+                    return null;
+                }
+                try {
+                    decoded = decode_base58(encoded);
+                    if (!isValidBaseEncodedContent(decoded)) {
+                        return null;
+                    }
+                } catch (Exception e) {
+                    return null;
+                }
+                tagName = "base58";
+                break;
+            default:
+                return null;
+        }
+        return new DecodeResult(decoded, "<@" + tagName + ">", "</@" + tagName.split("\\(")[0] + ">");
+    }
+
+    private static DecompressResult decompressIfNeeded(String decoded) {
+        StringBuilder openTags = new StringBuilder();
+        StringBuilder closeTags = new StringBuilder();
+
+        while (true) {
+            if (isGzip(decoded)) {
+                String decompressed = gzip_decompress(decoded);
+                if (isAsciiOrCompressed(decompressed)) {
+                    openTags.append("<@gzip_compress>");
+                    closeTags.insert(0, "</@gzip_compress>");
+                    decoded = decompressed;
+                    continue;
+                }
+            }
+            if (isDeflate(decoded)) {
+                String decompressed = deflate_decompress(decoded);
+                if (!decompressed.startsWith("Error:") && isAsciiOrCompressed(decompressed)) {
+                    openTags.append("<@deflate_compress>");
+                    closeTags.insert(0, "</@deflate_compress>");
+                    decoded = decompressed;
+                    continue;
+                }
+            }
+            break;
+        }
+        return new DecompressResult(decoded, openTags.toString(), closeTags.toString());
+    }
+
+    private static class DecodeResult {
+        final String decoded;
+        final String openTag;
+        final String closeTag;
+
+        DecodeResult(String decoded, String openTag, String closeTag) {
+            this.decoded = decoded;
+            this.openTag = openTag;
+            this.closeTag = closeTag;
+        }
+    }
+
+    private static class DecompressResult {
+        final String decoded;
+        final String openTags;
+        final String closeTags;
+
+        DecompressResult(String decoded, String openTags, String closeTags) {
+            this.decoded = decoded;
+            this.openTags = openTags;
+            this.closeTags = closeTags;
+        }
+    }
+
+    private static class EncodedMatch {
+        final int start;
+        final int end;
+        final String matched;
+        final String type;
+
+        EncodedMatch(int start, int end, String matched, String type) {
+            this.start = start;
+            this.end = end;
+            this.matched = matched;
+            this.type = type;
+        }
     }
 
     static String auto_decode_decrypt(String str, Boolean decrypt) {
@@ -3465,7 +3795,7 @@ public class Convertors {
             }
             if (CSS_ESCAPE_PATTERN.matcher(str).find()) {
                 test = decode_css_escapes(str);
-                if (isPrintableAscii(test)) {
+                if (isAsciiOrCompressed(test)) {
                     str = test;
                     matched = true;
                     appendTags(openTags, closeTags, "css_escapes");
@@ -3473,7 +3803,7 @@ public class Convertors {
             }
             if (HEX_ESCAPE_PATTERN.matcher(str).find()) {
                 test = decode_js_string(str);
-                if (isPrintableAscii(test)) {
+                if (isAsciiOrCompressed(test)) {
                     str = test;
                     matched = true;
                     appendTags(openTags, closeTags, "hex_escapes");
@@ -3481,7 +3811,7 @@ public class Convertors {
             }
             if (OCTAL_ESCAPE_PATTERN.matcher(str).find()) {
                 test = decode_js_string(str);
-                if (isPrintableAscii(test)) {
+                if (isAsciiOrCompressed(test)) {
                     str = test;
                     matched = true;
                     appendTags(openTags, closeTags, "octal_escapes");
@@ -3489,7 +3819,7 @@ public class Convertors {
             }
             if (UNICODE_ESCAPE_PATTERN.matcher(str).find()) {
                 test = decode_js_string(str);
-                if (isPrintableAscii(test)) {
+                if (isAsciiOrCompressed(test)) {
                     str = test;
                     matched = true;
                     appendTags(openTags, closeTags, "unicode_escapes");
@@ -3543,7 +3873,7 @@ public class Convertors {
             }
             if (BASE58_PATTERN.matcher(str).find() && str.length() >= 4 && !matched) {
                 test = decode_base58(str);
-                if (isPrintableAscii(test)) {
+                if (isAsciiOrCompressed(test)) {
                     str = test;
                     matched = true;
                     appendTags(openTags, closeTags, "base58");
@@ -3551,7 +3881,7 @@ public class Convertors {
             }
             if (QUOTED_PRINTABLE_PATTERN.matcher(str).find() && !matched) {
                 test = d_quoted_printable(str);
-                if (!test.startsWith("Error") && isPrintableAscii(test)) {
+                if (!test.startsWith("Error") && isAsciiOrCompressed(test)) {
                     str = test;
                     matched = true;
                     appendTags(openTags, closeTags, "quoted_printable");
@@ -3559,7 +3889,7 @@ public class Convertors {
             }
             if (UTF7_PATTERN.matcher(str).find() && !matched) {
                 test = utf7Decode(str);
-                if (isPrintableAscii(test) && !test.equals(str)) {
+                if (isAsciiOrCompressed(test) && !test.equals(str)) {
                     str = test;
                     matched = true;
                     appendTags(openTags, closeTags, "utf7", "utf7");

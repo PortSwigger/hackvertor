@@ -18,10 +18,7 @@ import org.json.JSONObject;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
 import javax.swing.filechooser.FileFilter;
-import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
@@ -286,10 +283,6 @@ public class CustomTags {
             y++;
         }
         JButton cancelButton = new JButton("Cancel");
-        if (!HackvertorExtension.isNativeTheme && !HackvertorExtension.isDarkTheme) {
-            cancelButton.setBackground(Color.decode("#005a70"));
-            cancelButton.setForeground(Color.white);
-        }
         cancelButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -510,14 +503,6 @@ public class CustomTags {
                 service.shutdown();
             }
         });
-        if (!HackvertorExtension.isNativeTheme && !HackvertorExtension.isDarkTheme) {
-            createButton.setBackground(Color.decode("#005a70"));
-            createButton.setForeground(Color.white);
-            testButton.setBackground(Color.decode("#005a70"));
-            testButton.setForeground(Color.white);
-            exportButton.setBackground(Color.decode("#005a70"));
-            exportButton.setForeground(Color.white);
-        }
         JPanel buttonsPanel = new JPanel(new GridBagLayout());
         buttonsPanel.add(cancelButton, GridbagUtils.addMarginToGbc(GridbagUtils.createConstraints(0, 0, 1, GridBagConstraints.NONE, 0, 0, 5, 5, CENTER), 2, 2, 2, 2));
         if(edit) {
@@ -842,16 +827,6 @@ public class CustomTags {
             }
             HackvertorExtension.extensionPanel.refresh();
         });
-        if (!HackvertorExtension.isNativeTheme && !HackvertorExtension.isDarkTheme) {
-            deleteButton.setBackground(Color.decode("#005a70"));
-            deleteButton.setForeground(Color.white);
-            editButton.setBackground(Color.decode("#005a70"));
-            editButton.setForeground(Color.white);
-            exportButton.setBackground(Color.decode("#005a70"));
-            exportButton.setForeground(Color.white);
-            loadButton.setBackground(Color.decode("#005a70"));
-            loadButton.setForeground(Color.white);
-        }
         listTagsPanel.add(editButton);
         listTagsPanel.add(deleteButton);
         listTagsPanel.add(loadButton);
