@@ -6,6 +6,7 @@ import burp.api.montoya.EnhancedCapability;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.core.Registration;
 import burp.api.montoya.http.message.requests.HttpRequest;
+import burp.api.montoya.ui.Theme;
 import burp.api.montoya.ui.contextmenu.MessageEditorHttpRequestResponse;
 import burp.api.montoya.ui.hotkey.HotKey;
 import burp.api.montoya.ui.hotkey.HotKeyContext;
@@ -35,7 +36,7 @@ import static burp.hv.utils.TagUtils.generateTagActionListener;
 public class HackvertorExtension implements BurpExtension, IBurpExtender, ITab, IExtensionStateListener, IMessageEditorTabFactory {
     //TODO Unset on unload
     public static String extensionName = "Hackvertor";
-    public static String version = "v2.2.34";
+    public static String version = "v2.2.42";
     public static JFrame HackvertorFrame = null;
     public static IBurpExtenderCallbacks callbacks;
     public static IExtensionHelpers helpers;
@@ -46,10 +47,7 @@ public class HackvertorExtension implements BurpExtension, IBurpExtender, ITab, 
     public static MontoyaApi montoyaApi;
     public static Settings generalSettings;
     public static HashMap<String,String>globalVariables = new HashMap<>();
-    public static boolean isNativeTheme;
-    public static boolean isDarkTheme;
-    private List<String> NATIVE_LOOK_AND_FEELS = Arrays.asList("GTK","Windows","Aqua","FlatLaf - Burp Light");
-    public static List<String> DARK_THEMES = Arrays.asList("Darcula","FlatLaf - Burp Dark");
+    public static boolean isDarkTheme = false;
 
     public static Hackvertor hackvertor;
     public static ExtensionPanel extensionPanel;
@@ -112,7 +110,6 @@ public class HackvertorExtension implements BurpExtension, IBurpExtender, ITab, 
         SwingUtilities.invokeLater(() -> {
             try {
                 hackvertor = new Hackvertor();
-                stdout.println(extensionName + " " + version);
                 CustomTags.loadCustomTags();
                 Variables.loadGlobalVariables();
                 registerPayloadProcessors();
@@ -128,9 +125,6 @@ public class HackvertorExtension implements BurpExtension, IBurpExtender, ITab, 
 
             }
         });
-        //callbacks.printOutput("Look And Feel: "+UIManager.getLookAndFeel().getID());
-        isNativeTheme = NATIVE_LOOK_AND_FEELS.contains(UIManager.getLookAndFeel().getID());
-        isDarkTheme = DARK_THEMES.contains(UIManager.getLookAndFeel().getID());
     }
 
     void registerPayloadProcessors() {
@@ -181,7 +175,9 @@ public class HackvertorExtension implements BurpExtension, IBurpExtender, ITab, 
 
     @Override
     public void initialize(MontoyaApi montoyaApi) {
+        montoyaApi.logging().logToOutput(extensionName + " " + version);
         HackvertorExtension.montoyaApi = montoyaApi;
+        isDarkTheme = montoyaApi.userInterface().currentTheme().equals(Theme.DARK);
         montoyaApi.userInterface().menuBar().registerMenu(Utils.generateHackvertorMenuBar());
         Burp burp = new Burp(montoyaApi.burpSuite().version());
         montoyaApi.http().registerHttpHandler(new HackvertorHttpHandler());
@@ -195,7 +191,7 @@ public class HackvertorExtension implements BurpExtension, IBurpExtender, ITab, 
 
     private void registerAllHotkeys(MontoyaApi montoyaApi, Burp burp) {
         List<HotkeyDefinition> hotkeys = Arrays.asList(
-            new HotkeyDefinition("Convert", "Ctrl+Alt+C", event -> {
+            new HotkeyDefinition("Convert", "Ctrl+Alt+H", event -> {
                 if (event.messageEditorRequestResponse().isEmpty()) {
                     return;
                 }
@@ -222,14 +218,26 @@ public class HackvertorExtension implements BurpExtension, IBurpExtender, ITab, 
                 Tag tagObj = TagUtils.getTagByTagName(tags, lastTagUsed);
                 generateTagActionListener(event, tagObj).actionPerformed(null);
             }),
-            new HotkeyDefinition("New custom tag", "Ctrl+Alt+N", event -> CustomTags.showCreateEditTagDialog(false, null)),
-            new HotkeyDefinition("List custom tags", "Ctrl+Alt+L", event -> CustomTags.showListTagsDialog()),
-            new HotkeyDefinition("Global variables", "Ctrl+Alt+V", event -> Variables.showGlobalVariablesWindow()),
-            new HotkeyDefinition("Tag Automator", "Ctrl+Alt+A", event -> TagAutomator.showRulesDialog()),
-            new HotkeyDefinition("Settings", "Ctrl+Alt+S", event -> Settings.showSettingsWindow()),
-            new HotkeyDefinition("Smart decode", "Ctrl+Alt+D", createAutoDecodeHandler()),
-            new HotkeyDefinition("Show tag store", "Ctrl+Alt+T", event -> TagStore.showTagStore()),
-            new HotkeyDefinition("Multi Encoder", "Ctrl+Alt+M", createMultiEncoderHandler(montoyaApi))
+            new HotkeyDefinition("Smart decode", "Ctrl+Alt+D", createSmartDecodeHandler()),
+            new HotkeyDefinition("Multi Encoder", "Ctrl+Alt+M", createMultiEncoderHandler(montoyaApi)),
+            burp.hasCapability(Burp.Capability.REGISTER_HOTKEY_IN_ALL_CONTEXTS)
+                ? HotkeyDefinition.forAllContexts("New custom tag", "Ctrl+Alt+N", event -> CustomTags.showCreateEditTagDialog(false, null))
+                : new HotkeyDefinition("New custom tag", "Ctrl+Alt+N", event -> CustomTags.showCreateEditTagDialog(false, null)),
+            burp.hasCapability(Burp.Capability.REGISTER_HOTKEY_IN_ALL_CONTEXTS)
+                ? HotkeyDefinition.forAllContexts("List custom tags", "Ctrl+Alt+L", event -> CustomTags.showListTagsDialog())
+                : new HotkeyDefinition("List custom tags", "Ctrl+Alt+L", event -> CustomTags.showListTagsDialog()),
+            burp.hasCapability(Burp.Capability.REGISTER_HOTKEY_IN_ALL_CONTEXTS)
+                ? HotkeyDefinition.forAllContexts("Global variables", "Ctrl+Alt+V", event -> Variables.showGlobalVariablesWindow())
+                : new HotkeyDefinition("Global variables", "Ctrl+Alt+V", event -> Variables.showGlobalVariablesWindow()),
+            burp.hasCapability(Burp.Capability.REGISTER_HOTKEY_IN_ALL_CONTEXTS)
+                ? HotkeyDefinition.forAllContexts("Tag Automator", "Ctrl+Alt+A", event -> TagAutomator.showRulesDialog())
+                : new HotkeyDefinition("Tag Automator", "Ctrl+Alt+A", event -> TagAutomator.showRulesDialog()),
+            burp.hasCapability(Burp.Capability.REGISTER_HOTKEY_IN_ALL_CONTEXTS)
+                ? HotkeyDefinition.forAllContexts("Settings", "Ctrl+Alt+S", event -> Settings.showSettingsWindow())
+                : new HotkeyDefinition("Settings", "Ctrl+Alt+S", event -> Settings.showSettingsWindow()),
+            burp.hasCapability(Burp.Capability.REGISTER_HOTKEY_IN_ALL_CONTEXTS)
+                ? HotkeyDefinition.forAllContexts("Show tag store", "Ctrl+Alt+T", event -> TagStore.showTagStore())
+                : new HotkeyDefinition("Show tag store", "Ctrl+Alt+T", event -> TagStore.showTagStore())
         );
 
         for (HotkeyDefinition hotkey : hotkeys) {
@@ -241,55 +249,97 @@ public class HackvertorExtension implements BurpExtension, IBurpExtender, ITab, 
         final String name;
         final String keyCombo;
         final HotKeyHandler handler;
+        final HotKeyContext[] contexts;
+        final boolean allContexts;
 
         HotkeyDefinition(String name, String keyCombo, HotKeyHandler handler) {
+            this(name, keyCombo, handler, HotKeyContext.HTTP_MESSAGE_EDITOR);
+        }
+
+        HotkeyDefinition(String name, String keyCombo, HotKeyHandler handler, HotKeyContext... contexts) {
             this.name = name;
             this.keyCombo = keyCombo;
             this.handler = handler;
+            this.contexts = contexts;
+            this.allContexts = false;
+        }
+
+        static HotkeyDefinition forAllContexts(String name, String keyCombo, HotKeyHandler handler) {
+            return new HotkeyDefinition(name, keyCombo, handler, true);
+        }
+
+        private HotkeyDefinition(String name, String keyCombo, HotKeyHandler handler, boolean allContexts) {
+            this.name = name;
+            this.keyCombo = keyCombo;
+            this.handler = handler;
+            this.contexts = null;
+            this.allContexts = allContexts;
         }
     }
 
     private void registerHotkey(MontoyaApi montoyaApi, Burp burp, HotkeyDefinition hotkey) {
-        Registration registration;
-
-        if(burp.hasCapability(Burp.Capability.REGISTER_HOTKEY_WITH_NAME)) {
-            registration = montoyaApi.userInterface().registerHotKeyHandler(
-                HotKeyContext.HTTP_MESSAGE_EDITOR,
+        if (hotkey.allContexts) {
+            Registration registration = montoyaApi.userInterface().registerHotKeyHandler(
                 HotKey.hotKey(hotkey.name, hotkey.keyCombo),
                 hotkey.handler);
-        } else {
-            registration = montoyaApi.userInterface().registerHotKeyHandler(
-                HotKeyContext.HTTP_MESSAGE_EDITOR,
-                hotkey.keyCombo,
-                hotkey.handler);
+            if (registration.isRegistered()) {
+                montoyaApi.logging().logToOutput("Successfully registered hotkey: " + hotkey.name + " (" + hotkey.keyCombo + ") for all contexts");
+            } else {
+                montoyaApi.logging().logToError("Failed to register hotkey: " + hotkey.name + " (" + hotkey.keyCombo + ") for all contexts");
+            }
+            return;
         }
 
-        if(registration.isRegistered()) {
-            montoyaApi.logging().logToOutput("Successfully registered hotkey: " + hotkey.name + " (" + hotkey.keyCombo + ")");
-            if(hotkey.name.equals("Auto decode")) {
-                hasHotKey = true;
+        for (HotKeyContext context : hotkey.contexts) {
+            Registration registration;
+            if (burp.hasCapability(Burp.Capability.REGISTER_HOTKEY_WITH_NAME)) {
+                registration = montoyaApi.userInterface().registerHotKeyHandler(
+                    context,
+                    HotKey.hotKey(hotkey.name, hotkey.keyCombo),
+                    hotkey.handler);
+            } else {
+                registration = montoyaApi.userInterface().registerHotKeyHandler(
+                    context,
+                    hotkey.keyCombo,
+                    hotkey.handler);
             }
-        } else {
-            montoyaApi.logging().logToError("Failed to register hotkey: " + hotkey.name + " (" + hotkey.keyCombo + ")");
+
+            if (registration.isRegistered()) {
+                montoyaApi.logging().logToOutput("Successfully registered hotkey: " + hotkey.name + " (" + hotkey.keyCombo + ") for context: " + context);
+                if (hotkey.name.equals("Auto decode")) {
+                    hasHotKey = true;
+                }
+            } else {
+                montoyaApi.logging().logToError("Failed to register hotkey: " + hotkey.name + " (" + hotkey.keyCombo + ") for context: " + context);
+            }
         }
     }
 
-    private HotKeyHandler createAutoDecodeHandler() {
+    private HotKeyHandler createSmartDecodeHandler() {
         return event -> {
             if (event.messageEditorRequestResponse().isEmpty()) {
                 return;
             }
             MessageEditorHttpRequestResponse requestResponse = event.messageEditorRequestResponse().get();
-            if(requestResponse.selectionOffsets().isPresent() &&
-               requestResponse.selectionContext().toString().equalsIgnoreCase("request")) {
-                String request = requestResponse.requestResponse().request().toString();
+            if (!requestResponse.selectionContext().toString().equalsIgnoreCase("request")) {
+                return;
+            }
+            String request = requestResponse.requestResponse().request().toString();
+            String modifiedRequest;
+            if (requestResponse.selectionOffsets().isPresent()) {
                 int start = requestResponse.selectionOffsets().get().startIndexInclusive();
                 int end = requestResponse.selectionOffsets().get().endIndexExclusive();
-                String selectionWithTags = auto_decode_no_decrypt(request.substring(start, end));
-                String modifiedRequest = request.substring(0, start) + selectionWithTags + request.substring(end);
-                requestResponse.setRequest(HttpRequest.httpRequest(
-                    requestResponse.requestResponse().httpService(), modifiedRequest));
+                if (start != end) {
+                    String decoded = auto_decode_no_decrypt(request.substring(start, end));
+                    modifiedRequest = request.substring(0, start) + decoded + request.substring(end);
+                } else {
+                    modifiedRequest = auto_decode_partial(request);
+                }
+            } else {
+                modifiedRequest = auto_decode_partial(request);
             }
+            requestResponse.setRequest(HttpRequest.httpRequest(
+                requestResponse.requestResponse().httpService(), modifiedRequest));
         };
     }
 
