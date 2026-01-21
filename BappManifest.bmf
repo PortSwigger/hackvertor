@@ -2,8 +2,8 @@ Uuid: 65033cbd2c344fbabe57ac060b5dd100
 ExtensionType: 1
 Name: Hackvertor
 RepoName: hackvertor
-ScreenVersion: 2.2.34
-SerialVersion: 59
+ScreenVersion: 2.2.42
+SerialVersion: 60
 MinPlatformVersion: 20
 ProOnly: False
 Author: Gareth Heyes, PortSwigger
