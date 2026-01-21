@@ -2,6 +2,19 @@
 
 ## Version v2.2.42 (2026-01-21)
 
+- Merge branch 'hackvertor-master'
+- Merge.
+- Update CHANGELOG.md for v2.2.42
+- Improved auto decoding
+- Fixed dark theme UI issues
+- Moved version output and improved button layout
+- Fixed problems when in dark mode on EA
+- Fixed all tags ui test to look for converted output too
+- Fixed UI tests and reverted regex changes to partial autodecode
+- Fixed smart decode to be a bit stricter
+
+## Version v2.2.42 (2026-01-21)
+
 - Improved auto decoding
 - Fixed dark theme UI issues
 - Moved version output and improved button layout
