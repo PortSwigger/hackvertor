@@ -15,6 +15,7 @@ import java.awt.*;
 import java.awt.event.ItemEvent;
 import java.util.*;
 
+import static burp.hv.ui.UIUtils.applyPrimaryStyle;
 import static burp.hv.utils.GridbagUtils.addMarginToGbc;
 import static burp.hv.utils.GridbagUtils.createConstraints;
 import static burp.hv.HackvertorExtension.*;
@@ -59,9 +60,7 @@ public class Settings {
             HackvertorExtension.callbacks.printError(Arrays.toString(e.getStackTrace()));
             throw new RuntimeException(e);
         }
-        settingsWindow.pack();
-        settingsWindow.setLocationRelativeTo(null);
-        settingsWindow.setVisible(true);
+        Utils.makeWindowVisible(settingsWindow);
     }
 
     public enum SettingType  {
@@ -274,11 +273,7 @@ public class Settings {
         JLabel status = new JLabel(" ");
         Settings settings = this;
         JLabel logoLabel;
-        if (isDarkTheme) {
-            logoLabel = new JLabel(createImageIcon("/images/logo-dark.png", "logo"));
-        } else {
-            logoLabel = new JLabel(createImageIcon("/images/logo-light.png", "logo"));
-        }
+        logoLabel = new JLabel(createImageIcon("/images/logo-light.png", "logo"));
         JPanel logoContainer = new JPanel(new GridBagLayout());
         logoContainer.add(logoLabel, GridbagUtils.createConstraints(0, 0, 1, 1, 0, 0, 0, 0, GridBagConstraints.NORTH));
         JLabel versionLabel = new JLabel(version);
@@ -432,7 +427,7 @@ public class Settings {
         JButton closeSettingsBtn = new JButton("Close");
         JButton resetSettingsBtn = new JButton("Reset");
         resetSettingsBtn.addActionListener(e -> {
-            int confirm = JOptionPane.showConfirmDialog(null, "Are you sure you want to reset your settings?");
+            int confirm = JOptionPane.showConfirmDialog(settingsWindow, "Are you sure you want to reset your settings?");
             if(confirm == 0) {
                 this.resetSettings();
                 this.save();
@@ -442,6 +437,7 @@ public class Settings {
             }
         });
         JButton updateSettingsBtn = new JButton("Update");
+        applyPrimaryStyle(updateSettingsBtn);
         updateSettingsBtn.addActionListener(e -> {
             this.save();
             loadSettingObject.load();
@@ -455,7 +451,7 @@ public class Settings {
         buttonsContainer.add(new Label(), GridbagUtils.createConstraints(4, 0, 1, GridBagConstraints.BOTH, 0, 0, 5, 5, CENTER));
         closeSettingsBtn.addActionListener(e -> {
             if(isModified) {
-                int confirm = JOptionPane.showConfirmDialog(null, "Are you sure you have unsaved settings?");
+                int confirm = JOptionPane.showConfirmDialog(settingsWindow, "Are you sure you have unsaved settings?");
                 if(confirm != 0) {
                     return;
                 }
@@ -465,9 +461,7 @@ public class Settings {
         });
         buttonsContainer.add(status, GridbagUtils.addMarginToGbc(GridbagUtils.createConstraints(0, 1, 5, GridBagConstraints.NONE, 0, 0, 5, 5, CENTER), 2, 2, 2, 2));
         settingsPanel.add(buttonsContainer, createConstraints(0, containerRow, 2, GridBagConstraints.NONE, 0, 0, spacing, spacing, GridBagConstraints.CENTER));
-        settingsWindow.pack();
-        settingsWindow.setLocationRelativeTo(null);
-        settingsWindow.setVisible(true);
+        Utils.makeWindowVisible(settingsWindow);
         return settingsPanel;
     }
 }

@@ -41,6 +41,8 @@ import static burp.hv.Convertors.*;
 import static burp.hv.HackvertorExtension.*;
 import static burp.hv.HackvertorExtension.tagCodeExecutionKey;
 import static burp.hv.ai.AI.featureMessage;
+import static burp.hv.ui.UIUtils.applyPrimaryStyle;
+import static burp.hv.ui.UIUtils.applyTextAreaBorderStyle;
 import static java.awt.GridBagConstraints.CENTER;
 
 public class CustomTags {
@@ -276,6 +278,7 @@ public class CustomTags {
         int y = 6;
         if(customTag != null && customTag.has("summary")) {
             JTextArea summary = new JTextArea(customTag.getString("summary"));
+            applyTextAreaBorderStyle(summary);
             summary.setPreferredSize(new Dimension(800, 200));
             summary.setLineWrap(true);
             summary.setWrapStyleWord(true);
@@ -296,6 +299,7 @@ public class CustomTags {
         JLabel errorMessage = new JLabel();
         errorMessage.setForeground(Color.red);
         JButton createButton = new JButton("Create tag");
+        applyPrimaryStyle(createButton);
         JButton exportButton = new JButton("Export to tag store");
         JSONObject finalCustomTag = customTag;
         exportButton.addActionListener(e -> {
@@ -306,11 +310,11 @@ public class CustomTags {
                     JSONObject customTagCopy = new JSONObject(savedCustomTag, JSONObject.getNames(savedCustomTag));
                     customTagCopy.remove("code");
                     customTagCopy.put("tagName", customTagCopy.get("tagName").toString().replaceFirst("^_",""));
-                    String author = JOptionPane.showInputDialog(null, "Enter your github username", "");
+                    String author = JOptionPane.showInputDialog(createTagWindow, "Enter your github username", "");
                     if(author == null || author.isEmpty()) {
                         return;
                     }
-                    String description = JOptionPane.showInputDialog(null, "Enter a description of your tag", "");
+                    String description = JOptionPane.showInputDialog(createTagWindow, "Enter a description of your tag", "");
                     if(description.isEmpty()) {
                         return;
                     }
@@ -351,7 +355,7 @@ public class CustomTags {
             if (argument2Combo.getSelectedIndex() > 0) {
                 numberOfArgs++;
             }
-            String input = JOptionPane.showInputDialog(null, "Enter input for your tag", "test");
+            String input = JOptionPane.showInputDialog(createTagWindow, "Enter input for your tag", "test");
             JSONObject tag = new JSONObject();
             tag.put("tagName", "_" + tagName);
             tag.put("language", language);
@@ -612,9 +616,7 @@ public class CustomTags {
         y++;
         createTagPanel.add(errorMessage, GridbagUtils.addMarginToGbc(GridbagUtils.createConstraints(0, y, 3, GridBagConstraints.NONE, 0, 0, 5, 5, CENTER), 2, 2, 2, 2));
         pane.add(createTagPanel);
-        createTagWindow.pack();
-        createTagWindow.setLocationRelativeTo(null);
-        createTagWindow.setVisible(true);
+        Utils.makeWindowVisible(createTagWindow);
     }
 
     public static void showListTagsDialog() {
@@ -642,6 +644,7 @@ public class CustomTags {
             tagCombo.addItem(tag);
         }
         JButton editButton = new JButton("Edit tag");
+        applyPrimaryStyle(editButton);
         editButton.addActionListener(e -> {
             if (tagCombo.getSelectedIndex() == -1) {
                 return;
@@ -782,7 +785,7 @@ public class CustomTags {
             clipboard.setContents(customTagsJSON, null);
         });
         loadButton.addActionListener(e -> {
-            int input = JOptionPane.showConfirmDialog(null, "Are you sure you sure you want to load all tags from the clipboard? This will replace your existing tags");
+            int input = JOptionPane.showConfirmDialog(listTagsWindow, "Are you sure you sure you want to load all tags from the clipboard? This will replace your existing tags");
             if (input != 0) {
                 return;
             }
@@ -812,7 +815,7 @@ public class CustomTags {
             if (tagCombo.getSelectedIndex() == -1) {
                 return;
             }
-            int input = JOptionPane.showConfirmDialog(null, "Are you sure you want to delete this tag?");
+            int input = JOptionPane.showConfirmDialog(listTagsWindow, "Are you sure you want to delete this tag?");
             if (input != 0) {
                 return;
             }
@@ -834,9 +837,7 @@ public class CustomTags {
         listTagsPanel.add(loadFromJsonButton);
         listTagsPanel.add(exportToJsonButton);
         listTagsWindow.add(listTagsPanel);
-        listTagsWindow.pack();
-        listTagsWindow.setLocationRelativeTo(null);
-        listTagsWindow.setVisible(true);
+        Utils.makeWindowVisible(listTagsWindow);
     }
 
     public static void loadCustomTags() {

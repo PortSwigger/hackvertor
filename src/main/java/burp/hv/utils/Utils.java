@@ -87,6 +87,7 @@ public class Utils {
         settings.registerBooleanSetting("sortTagCategories", true, "Alphabetically sort tag categories", "Misc", null);
         settings.registerBooleanSetting("allowAutoConvertClipboard", false, "Auto convert clipboard","Misc", null);
         settings.registerBooleanSetting("showOutputInMessageEditor", false, "Show the output panel in the message editor","Misc", null);
+        settings.registerBooleanSetting("fixWebsocketMojibake", false, "Attempt to undo common UTF-8 mojibake in WebSocket text payloads", "Misc", "This attempts to reverse double-encoding when binary is treated as text. Use with caution.");
         settings.registerStringSetting("pythonModulePath", "", "Python module path","System");
     }
 
@@ -104,6 +105,32 @@ public class Utils {
             }
         });
         return HackvertorFrame;
+    }
+
+    public static void makeWindowVisible(JFrame frame) {
+        if (frame != null) {
+            frame.pack();
+            Rectangle bounds = getScreenWithMouse().getBounds();
+            frame.setLocation(
+                bounds.x + (bounds.width - frame.getWidth()) / 2,
+                bounds.y + (bounds.height - frame.getHeight()) / 2
+            );
+            frame.setVisible(true);
+        }
+    }
+
+    private static GraphicsConfiguration getScreenWithMouse() {
+        Point mousePos = MouseInfo.getPointerInfo().getLocation();
+        GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+        for (GraphicsDevice device : ge.getScreenDevices()) {
+            if (device.getDefaultConfiguration().getBounds().contains(mousePos)) {
+                return device.getDefaultConfiguration();
+            }
+        }
+        // fallback to default
+        return GraphicsEnvironment.getLocalGraphicsEnvironment()
+            .getDefaultScreenDevice()
+            .getDefaultConfiguration();
     }
 
     public static JMenu generateHackvertorMenuBar() {

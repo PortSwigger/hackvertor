@@ -25,6 +25,7 @@ import java.net.URL;
 import java.util.HashMap;
 
 import static burp.hv.HackvertorExtension.montoyaApi;
+import static burp.hv.ui.UIUtils.applyPrimaryStyle;
 
 public class TagStore {
     public static void showTagStore() {
@@ -65,6 +66,7 @@ public class TagStore {
         JPanel buttonsPanel = new JPanel(new BorderLayout());
         Utils.setMarginAndPadding(buttonsPanel, 10);
         JButton installButton = new JButton("Install tag");
+        applyPrimaryStyle(installButton);
         JButton closeButton = new JButton("Close");
         buttonsPanel.add(closeButton, BorderLayout.WEST);
         buttonsPanel.add(installButton, BorderLayout.EAST);
@@ -113,7 +115,7 @@ public class TagStore {
         ListSelectionModel selectionModel = storeTable.getSelectionModel();
         installButton.addActionListener(e -> {
             HackvertorExtension.alert("Custom tags can compromise your system. Please ensure you've evaluated the code before you install it.");
-            int confirm = JOptionPane.showConfirmDialog(null, "Are you sure you want to install this custom tag?");
+            int confirm = JOptionPane.showConfirmDialog(tagStoreWindow, "Are you sure you want to install this custom tag?");
             if(confirm == 0) {
                 int selectedRow = storeTable.getSelectedRow();
                 String tagName = (String) storeTable.getValueAt(selectedRow, 0);
@@ -207,9 +209,7 @@ public class TagStore {
         tagStoreWindow.add(tagStorePanel);
         tagStoreWindow.setResizable(true);
         tagStoreWindow.setPreferredSize(new Dimension(1000, 700));
-        tagStoreWindow.pack();
-        tagStoreWindow.setLocationRelativeTo(null);
-        tagStoreWindow.setVisible(true);
+        Utils.makeWindowVisible(tagStoreWindow);
     }
 
     public static String makeHttpRequest(String requestUrl, String method) {

@@ -33,6 +33,8 @@ import java.util.concurrent.*;
 
 import static burp.hv.HackvertorExtension.*;
 import static burp.hv.Convertors.*;
+import static burp.hv.ui.UIUtils.*;
+import static burp.hv.ui.UIUtils.applyLengthStyle;
 import static java.awt.GridBagConstraints.*;
 import static java.awt.GridBagConstraints.BOTH;
 
@@ -69,25 +71,30 @@ public class HackvertorPanel extends JPanel {
         topBar.setPreferredSize(new Dimension(-1, 100));
         topBar.setMinimumSize(new Dimension(-1, 100));
         JLabel logoLabel;
-        if (isDarkTheme) {
-            logoLabel = new JLabel(createImageIcon("/images/logo-dark.png", "logo"));
-        } else {
-            logoLabel = new JLabel(createImageIcon("/images/logo-light.png", "logo"));
-        }
+        logoLabel = new JLabel(createImageIcon("/images/logo-light.png", "logo"));
         if (!showLogo) {
             logoLabel = new JLabel();
         }
         final JTextArea hexView = new JTextArea();
-        hexView.setFont(new Font("Courier New", Font.PLAIN, hexView.getFont().getSize()));
+        applyTextAreaBorderStyle(hexView);
+        // Use a generic monospaced font for hex display/editing
+        hexView.setFont(new Font(Font.MONOSPACED, Font.PLAIN, hexView.getFont().getSize()));
         hexView.setRows(0);
         hexView.setOpaque(true);
-        hexView.setEditable(false);
+        // Allow editing so users can paste or type hex directly
+        hexView.setEditable(true);
+        // Enable line wrap but avoid breaking in the middle of words/bytes
         hexView.setLineWrap(true);
+        hexView.setWrapStyleWord(true);
         hexView.setVisible(false);
         final JScrollPane hexScroll = new JScrollPane(hexView);
         hexScroll.setPreferredSize(new Dimension(-1, 100));
         hexScroll.setMinimumSize(new Dimension(-1, 100));
-        JPanel buttonsPanel = new JPanel(new WrapLayout(FlowLayout.LEFT, 5, 5));
+        // Split buttons into left and right sections so we can align important actions (like Smart Decode / Apply hex)
+        // Use GridBagLayout so button groups can reflow vertically when horizontal space is limited.
+        JPanel buttonsPanel = new JPanel(new GridBagLayout());
+        JPanel leftButtons = new JPanel(new WrapLayout(FlowLayout.LEFT, 5, 5));
+        // use WrapLayout for the right side too so buttons wrap into additional rows when needed
         inputArea.setLineWrap(true);
         inputArea.setRows(0);
         final UndoManager undo = new UndoManager();
@@ -122,7 +129,9 @@ public class HackvertorPanel extends JPanel {
         final JScrollPane inputScroll = new JScrollPane(inputArea);
         final JLabel inputLabel = new JLabel("Input:");
         final JLabel inputLenLabel = new JLabel("0");
+        applyLengthStyle(inputLenLabel);
         final JLabel inputRealLenLabel = new JLabel("0");
+        applyUnicodeLengthStyle(inputRealLenLabel);
         inputRealLenLabel.setOpaque(true);
         inputLenLabel.setOpaque(true);
         if(!hideOutput) {
@@ -225,7 +234,9 @@ public class HackvertorPanel extends JPanel {
         final JScrollPane outputScroll = new JScrollPane(outputArea);
         final JLabel outputLabel = new JLabel("Output:");
         final JLabel outputLenLabel = new JLabel("0");
+        applyLengthStyle(outputLenLabel);
         final JLabel outputRealLenLabel = new JLabel("0");
+        applyUnicodeLengthStyle(outputRealLenLabel);
         outputRealLenLabel.setOpaque(true);
         outputLenLabel.setOpaque(true);
         DocumentListener documentListener2 = new DocumentListener() {
@@ -369,6 +380,7 @@ public class HackvertorPanel extends JPanel {
         });
 
         final JButton decode = new JButton("Smart Decode");
+        UIUtils.applyPrimaryStyle(decode);
         decode.setToolTipText("Decode selected text, or decode partial matches in full input if nothing selected (Ctrl+Alt+D)");
         inputArea.getInputMap().put(KeyStroke.getKeyStroke("control alt D"), "smartDecode");
         SmartDecodeAction smartDecodeAction = new SmartDecodeAction(this.inputArea, null, hackvertor);
@@ -432,7 +444,7 @@ public class HackvertorPanel extends JPanel {
             }
         });
 
-        final JButton firstButton = new JButton("⏮");
+        final JButton firstButton = new JButton("↞");
         firstButton.setEnabled(!hideOutput);
         firstButton.setToolTipText("First history entry");
         firstButton.setPreferredSize(new Dimension(50, firstButton.getPreferredSize().height));
@@ -468,7 +480,7 @@ public class HackvertorPanel extends JPanel {
             }
         });
 
-        final JButton lastButton = new JButton("⏭");
+        final JButton lastButton = new JButton("↠");
         lastButton.setEnabled(!hideOutput);
         lastButton.setToolTipText("Last history entry");
         lastButton.setPreferredSize(new Dimension(50, lastButton.getPreferredSize().height));
@@ -504,30 +516,71 @@ public class HackvertorPanel extends JPanel {
             }
         });
 
-        java.util.List<JComponent> buttonComponents = new java.util.ArrayList<>();
-        buttonComponents.add(clearButton);
-        buttonComponents.add(firstButton);
-        buttonComponents.add(previousButton);
-        buttonComponents.add(historyPositionLabel);
-        buttonComponents.add(nextButton);
-        buttonComponents.add(lastButton);
-        buttonComponents.add(clearHistoryButton);
-        buttonComponents.add(clearTagsButton);
-        buttonComponents.add(rehydrateTagExecutionKey);
-        if(!hideOutput) {
-            buttonComponents.add(swapButton);
-        }
-        buttonComponents.add(selectInputButton);
-        if (!hideOutput) {
-            buttonComponents.add(selectOutputButton);
-            buttonComponents.add(pasteInsideButton);
-            buttonComponents.add(convertButton);
-        }
-        buttonComponents.add(decode);
+        final JButton applyHex = new JButton("Apply hex");
+        applyHex.setToolTipText("Replace selected text with the hex value from the hex field");
+        applyHex.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                String hexText = hexView.getText();
+                if (hexText == null || hexText.trim().isEmpty()) return;
+                // convert hex (which may contain spaces/comma/dashes) to ascii (local implementation to avoid visibility issues)
+                StringBuilder sb = new StringBuilder();
+                java.util.regex.Pattern p = java.util.regex.Pattern.compile("([0-9a-fA-F]{2})[\\s,\\-]?");
+                java.util.regex.Matcher m = p.matcher(hexText);
+                while (m.find()) {
+                    m.appendReplacement(sb, "");
+                    sb.append((char) Integer.parseInt(m.group(1), 16));
+                }
+                String replaced = sb.toString();
+                // prefer replacing selection in inputArea, then outputArea, otherwise insert into inputArea
+                try {
+                    if (inputArea.getSelectionStart() != inputArea.getSelectionEnd()) {
+                        inputArea.replaceSelection(replaced);
+                        inputArea.requestFocus();
+                    } else if (outputArea.getSelectionStart() != outputArea.getSelectionEnd()) {
+                        outputArea.replaceSelection(replaced);
+                        outputArea.requestFocus();
+                    } else {
+                        inputArea.replaceSelection(replaced);
+                        inputArea.requestFocus();
+                    }
+                } catch (Exception ex) {
+                    stderr.println("Error applying hex: " + ex.getMessage());
+                }
+            }
+        });
 
-        for (JComponent component : buttonComponents) {
-            buttonsPanel.add(component);
+        leftButtons.add(clearButton);
+        leftButtons.add(firstButton);
+        leftButtons.add(previousButton);
+        leftButtons.add(historyPositionLabel);
+        leftButtons.add(nextButton);
+        leftButtons.add(lastButton);
+        leftButtons.add(clearHistoryButton);
+        leftButtons.add(clearTagsButton);
+        leftButtons.add(rehydrateTagExecutionKey);
+        if(!hideOutput) {
+            leftButtons.add(swapButton);
         }
+        leftButtons.add(selectInputButton);
+        if (!hideOutput) {
+            leftButtons.add(selectOutputButton);
+            leftButtons.add(pasteInsideButton);
+        }
+        leftButtons.add(decode);
+
+        // Move the Convert button to the right panel (keep Smart Decode on the left)
+        leftButtons.add(convertButton);
+        leftButtons.add(applyHex);
+
+    // place left and right groups into buttonsPanel using GridBag so they can wrap and grow vertically
+    GridBagConstraints gbc = new GridBagConstraints();
+    gbc.gridx = 0;
+    gbc.gridy = 0;
+    gbc.weightx = 1.0;
+    gbc.fill = GridBagConstraints.HORIZONTAL;
+    gbc.anchor = GridBagConstraints.WEST;
+    buttonsPanel.add(leftButtons, gbc);
         GridBagConstraints c = GridbagUtils.createConstraints(1, 0, 1, GridBagConstraints.NONE, 0, 0, 0, 0, CENTER);
         c.anchor = FIRST_LINE_END;
         c.ipadx = 20;
@@ -601,9 +654,8 @@ public class HackvertorPanel extends JPanel {
         c.anchor = LAST_LINE_START;
         c.fill = BOTH;
         c.weightx = 1.0;
-        if(!hideOutput) {
-            this.add(hexScroll, c);
-        }
+        // Always show the hex view so users can edit/paste hex even when the output panel is hidden
+        this.add(hexScroll, c);
     }
 
     public JTabbedPane buildTabbedPane(boolean shouldSelectInput){
@@ -627,7 +679,8 @@ public class HackvertorPanel extends JPanel {
         }
 
         JPanel tagStoreContainer = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JButton tagStoreButton = new JButton("Open tag Store");
+        JButton tagStoreButton = new JButton("Open");
+        tagStoreButton.setToolTipText("Open tag store");
         tagStoreButton.setPreferredSize(new Dimension(120, 25));
         tagStoreButton.addActionListener((e) -> {
             TagStore.showTagStore();
