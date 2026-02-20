@@ -1,5 +1,18 @@
 # Changelog
 
+## Version v2.2.45 (2026-02-20)
+
+- Merge pull request #41 from hackvertor/master
+- Update CHANGELOG.md for v2.2.45
+- Bumped version
+- Fixed UI issues
+- Fixed UI issues
+- Update CHANGELOG.md for v2.2.43
+- Merge pull request #156 from snooze6/master
+- reverted bappmanifest.bmf
+- Merge pull request #157 from psalire/master
+- Fixed parser bug with self-closing tags and space. Added tests to cover it.
+
 ## Version v2.2.45 (2026-02-19)
 
 - Bumped version
