@@ -1,5 +1,18 @@
 # Changelog
 
+## Version v2.2.45 (2026-03-18)
+
+- Sync font with the configured font; update default file encoding detection
+- Update BappManifest.bmf
+- Update CHANGELOG.md for v2.2.45
+- Merge pull request #41 from hackvertor/master
+- Update CHANGELOG.md for v2.2.45
+- Bumped version
+- Fixed UI issues
+- Fixed UI issues
+- Update CHANGELOG.md for v2.2.43
+- Merge pull request #156 from snooze6/master
+
 ## Version v2.2.45 (2026-02-20)
 
 - Merge pull request #41 from hackvertor/master
