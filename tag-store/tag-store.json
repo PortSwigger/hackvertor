@@ -60,6 +60,13 @@
     "language": "Python"
   },
   {
+    "tagName": "textToPdf",
+    "description": "Create a PDF file on the fly, input is text in the PDF",
+    "author": "pentagridsec",
+    "numberOfArgs": 0,
+    "language": "Python"
+  },
+  {
     "tagName": "ip",
     "description": "Generates a random IP",
     "author": "Techbrunch",
