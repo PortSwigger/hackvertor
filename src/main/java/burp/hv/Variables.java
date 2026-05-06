@@ -12,6 +12,8 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.Iterator;
 
+import static burp.hv.ui.UIUtils.applyPrimaryStyle;
+
 public class Variables {
     public static void showGlobalVariablesWindow() {
         JPanel createVariablePanel = new JPanel();
@@ -47,6 +49,7 @@ public class Variables {
             }
         });
         JButton createButton = new JButton("Create/Update variable");
+        applyPrimaryStyle(createButton);
         createButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -69,12 +72,6 @@ public class Variables {
                 saveGlobalVariables();
             }
         });
-        if (!HackvertorExtension.isNativeTheme && !HackvertorExtension.isDarkTheme) {
-            createButton.setBackground(Color.decode("#005a70"));
-            createButton.setForeground(Color.white);
-            closeButton.setBackground(Color.decode("#005a70"));
-            closeButton.setForeground(Color.white);
-        }
 
         JLabel tagLabel = new JLabel("Variable");
         tagLabel.setPreferredSize(new Dimension(50, 25));
@@ -137,9 +134,7 @@ public class Variables {
         createVariablePanel.add(closeButton);
         createVariablePanel.add(createButton);
         pane.add(createVariablePanel);
-        createVariableWindow.pack();
-        createVariableWindow.setLocationRelativeTo(null);
-        createVariableWindow.setVisible(true);
+        Utils.makeWindowVisible(createVariableWindow);
     }
 
     public static void saveGlobalVariables() {

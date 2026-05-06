@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static burp.hv.Convertors.auto_decode_no_decrypt;
+import static burp.hv.Convertors.auto_decode_partial;
 import static burp.hv.HackvertorExtension.*;
 import static burp.hv.tags.TagAutomator.getContextsFromRule;
 import static burp.hv.tags.TagAutomator.shouldApplyRules;
@@ -77,11 +78,12 @@ public class HackvertorContextMenu implements ContextMenuItemsProvider {
         Action hackvertorAction;
         if (event.invocationType() == InvocationType.MESSAGE_VIEWER_RESPONSE) {
             hackvertorAction = new HackvertorAction("Send response body to Hackvertor", HackvertorExtension.extensionPanel, event);
-        } else {
-            hackvertorAction = new HackvertorAction("Send to Hackvertor", HackvertorExtension.extensionPanel, event);
+            JMenuItem sendToHackvertor = new JMenuItem(hackvertorAction);
+            menu.add(sendToHackvertor);
         }
-        JMenuItem sendToHackvertor = new JMenuItem(hackvertorAction);
-        menu.add(sendToHackvertor);
+        hackvertorAction = new HackvertorAction("Send selection to Hackvertor", HackvertorExtension.extensionPanel, event);
+        JMenuItem sendSelectionToHackvertor = new JMenuItem(hackvertorAction);
+        menu.add(sendSelectionToHackvertor);
 
         TagAutomator.loadRules();
         JSONArray rules = TagAutomator.getRules();
@@ -209,7 +211,6 @@ public class HackvertorContextMenu implements ContextMenuItemsProvider {
         });
         menu.add(learnFromThisRequest);
         JMenuItem autodecodeConvert;
-        Burp burp = new Burp(montoyaApi.burpSuite().version());
         if(hasHotKey) {
             autodecodeConvert = new JMenuItem("Smart decode (CTRL+Alt+D)");
         } else {
@@ -227,17 +228,19 @@ public class HackvertorContextMenu implements ContextMenuItemsProvider {
             start = -1;
         }
 
-        autodecodeConvert.setEnabled(start != end);
+        boolean hasSelection = start != end;
         autodecodeConvert.addActionListener(e -> {
             if (event.invocationType() == InvocationType.MESSAGE_EDITOR_REQUEST || event.invocationType() == InvocationType.MESSAGE_VIEWER_REQUEST) {
                 if(event.messageEditorRequestResponse().isPresent()) {
                     HttpRequest request = event.messageEditorRequestResponse().get().requestResponse().request();
                     String requestStr = request.toString();
-                    String convertedSelection = auto_decode_no_decrypt(requestStr.substring(start, end));
-                    String modifiedRequest = "";
-                    modifiedRequest += requestStr.substring(0, start);
-                    modifiedRequest += convertedSelection;
-                    modifiedRequest += requestStr.substring(end);
+                    String modifiedRequest;
+                    if (hasSelection) {
+                        String convertedSelection = auto_decode_no_decrypt(requestStr.substring(start, end));
+                        modifiedRequest = requestStr.substring(0, start) + convertedSelection + requestStr.substring(end);
+                    } else {
+                        modifiedRequest = auto_decode_partial(requestStr);
+                    }
                     event.messageEditorRequestResponse().get().setRequest(HttpRequest.httpRequest(request.httpService(), modifiedRequest));
                 }
             }

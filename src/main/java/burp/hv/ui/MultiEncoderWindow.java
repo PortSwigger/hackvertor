@@ -13,6 +13,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import javax.swing.*;
+import javax.swing.text.*;
 import java.util.EnumSet;
 import java.util.Set;
 import javax.swing.border.EmptyBorder;
@@ -30,11 +31,13 @@ import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+import static burp.hv.ui.UIUtils.applyPrimaryStyle;
+
 public class MultiEncoderWindow {
-    private static final int DEFAULT_WIDTH = 900;
-    private static final int DEFAULT_HEIGHT = 600;
+    private static final int DEFAULT_WIDTH = 1000;
+    private static final int DEFAULT_HEIGHT = 750;
     private static final int CORNER_RADIUS = 20;
-    private static final int COLUMN_COUNT = 3;
+    private static final int COLUMN_COUNT = 4;
     private static final int MAX_VARIANTS_DISPLAY = 100;
     private static final int MAX_VARIANTS_TOTAL = 10000;
     private static final int MAX_TAGS_PER_LAYER = 50;
@@ -53,7 +56,9 @@ public class MultiEncoderWindow {
     private final HttpRequestResponse baseRequestResponse;
     private final ArrayList<Layer> layers;
     private final Consumer<String> hackvertorCallback;
-    private JTextArea previewArea;
+    private JTextPane previewArea;
+    private JTextField previewSearchField;
+    private String lastPreviewContent = "";
     private JWindow window;
     private JComboBox<String> modeComboBox;
     private JTabbedPane layerTabbedPane;
@@ -61,7 +66,9 @@ public class MultiEncoderWindow {
     private JLabel statusLabel;
     private Timer statusClearTimer;
     private final Set<Tag.Category> enabledDangerousCategories = EnumSet.noneOf(Tag.Category.class);
+    private final Set<Tag.Category> enabledCategories = EnumSet.noneOf(Tag.Category.class);
     private final Map<Tag.Category, JCheckBox> dangerousCategoryCheckboxes = new HashMap<>();
+    private final Map<Tag.Category, JCheckBox> categoryCheckboxes = new HashMap<>();
 
     private class Layer {
         final Map<String, JCheckBox> tagCheckboxes;
@@ -140,11 +147,13 @@ public class MultiEncoderWindow {
             montoyaApi.userInterface().applyThemeToComponent(layerTabbedPane);
 
             JPanel layerButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-            JButton addLayerButton = new JButton("+ Add Layer");
+            JButton addLayerButton = new JButton("+");
+            addLayerButton.setToolTipText("Add Layer");
             addLayerButton.addActionListener(e -> addLayer());
             montoyaApi.userInterface().applyThemeToComponent(addLayerButton);
 
-            JButton removeLayerButton = new JButton("- Remove Layer");
+            JButton removeLayerButton = new JButton("-");
+            removeLayerButton.setToolTipText("Remove Layer");
             removeLayerButton.addActionListener(e -> removeCurrentLayer());
             montoyaApi.userInterface().applyThemeToComponent(removeLayerButton);
 
@@ -155,7 +164,7 @@ public class MultiEncoderWindow {
             loadState();
 
             JPanel dangerousCategoriesPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-            JLabel dangerousLabel = new JLabel("Enable dangerous categories:");
+            JLabel dangerousLabel = new JLabel("Dangerous:");
             dangerousLabel.setFont(new Font("Inter", Font.PLAIN, 12));
             montoyaApi.userInterface().applyThemeToComponent(dangerousLabel);
             dangerousCategoriesPanel.add(dangerousLabel);
@@ -180,9 +189,47 @@ public class MultiEncoderWindow {
             }
             montoyaApi.userInterface().applyThemeToComponent(dangerousCategoriesPanel);
 
+            JPanel categoriesInnerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+            for (Tag.Category category : Tag.Category.values()) {
+                if (DANGEROUS_CATEGORIES.contains(category)) {
+                    continue;
+                }
+                enabledCategories.add(category);
+                JCheckBox categoryCheckbox = new JCheckBox(category.name());
+                categoryCheckbox.setFont(new Font("Inter", Font.PLAIN, 12));
+                categoryCheckbox.setCursor(new Cursor(Cursor.HAND_CURSOR));
+                categoryCheckbox.setToolTipText("Show " + category.name() + " tags");
+                categoryCheckbox.setSelected(true);
+                categoryCheckbox.addActionListener(e -> {
+                    if (categoryCheckbox.isSelected()) {
+                        enabledCategories.add(category);
+                    } else {
+                        enabledCategories.remove(category);
+                    }
+                    refreshAllLayers();
+                });
+                montoyaApi.userInterface().applyThemeToComponent(categoryCheckbox);
+                categoriesInnerPanel.add(categoryCheckbox);
+                categoryCheckboxes.put(category, categoryCheckbox);
+            }
+            montoyaApi.userInterface().applyThemeToComponent(categoriesInnerPanel);
+
+            JScrollPane categoriesScrollPane = new JScrollPane(categoriesInnerPanel);
+            categoriesScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+            categoriesScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_NEVER);
+            categoriesScrollPane.setBorder(BorderFactory.createTitledBorder("Categories"));
+            categoriesScrollPane.setPreferredSize(new Dimension(DEFAULT_WIDTH - 50, 60));
+            categoriesScrollPane.getHorizontalScrollBar().setUnitIncrement(16);
+            montoyaApi.userInterface().applyThemeToComponent(categoriesScrollPane);
+
+            JPanel allCategoriesPanel = new JPanel(new BorderLayout());
+            allCategoriesPanel.add(categoriesScrollPane, BorderLayout.CENTER);
+            allCategoriesPanel.add(dangerousCategoriesPanel, BorderLayout.SOUTH);
+            montoyaApi.userInterface().applyThemeToComponent(allCategoriesPanel);
+
             JPanel layerControlPanel = new JPanel(new BorderLayout());
-            layerControlPanel.add(layerButtonPanel, BorderLayout.WEST);
-            layerControlPanel.add(dangerousCategoriesPanel, BorderLayout.EAST);
+            layerControlPanel.add(allCategoriesPanel, BorderLayout.CENTER);
+            layerControlPanel.add(layerButtonPanel, BorderLayout.SOUTH);
             montoyaApi.userInterface().applyThemeToComponent(layerControlPanel);
 
             topPanel.add(layerControlPanel, BorderLayout.NORTH);
@@ -191,7 +238,25 @@ public class MultiEncoderWindow {
             JPanel previewPanel = new JPanel(new BorderLayout());
             previewPanel.setBorder(BorderFactory.createEmptyBorder(10, 0, 10, 0));
 
-            previewArea = new JTextArea();
+            JPanel previewSearchPanel = new JPanel(new BorderLayout(5, 0));
+            previewSearchPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0));
+            JLabel previewSearchLabel = new JLabel("Filter:");
+            previewSearchLabel.setFont(new Font("Inter", Font.PLAIN, 12));
+            montoyaApi.userInterface().applyThemeToComponent(previewSearchLabel);
+            previewSearchField = new JTextField();
+            previewSearchField.setFont(new Font("Monospaced", Font.PLAIN, 12));
+            previewSearchField.addKeyListener(new KeyAdapter() {
+                @Override
+                public void keyReleased(KeyEvent e) {
+                    applyPreviewFilter();
+                }
+            });
+            montoyaApi.userInterface().applyThemeToComponent(previewSearchField);
+            previewSearchPanel.add(previewSearchLabel, BorderLayout.WEST);
+            previewSearchPanel.add(previewSearchField, BorderLayout.CENTER);
+            montoyaApi.userInterface().applyThemeToComponent(previewSearchPanel);
+
+            previewArea = new JTextPane();
             previewArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
             previewArea.setEditable(false);
             montoyaApi.userInterface().applyThemeToComponent(previewArea);
@@ -201,6 +266,7 @@ public class MultiEncoderWindow {
             previewScrollPane.setBorder(BorderFactory.createTitledBorder("Preview"));
             montoyaApi.userInterface().applyThemeToComponent(previewScrollPane);
 
+            previewPanel.add(previewSearchPanel, BorderLayout.NORTH);
             previewPanel.add(previewScrollPane, BorderLayout.CENTER);
 
             statusLabel = new JLabel(" ");
@@ -240,6 +306,8 @@ public class MultiEncoderWindow {
                     layer.selectAllCheckbox.setSelected(false);
                 }
                 previewArea.setText("");
+                lastPreviewContent = "";
+                previewSearchField.setText("");
             });
             montoyaApi.userInterface().applyThemeToComponent(clearButton);
 
@@ -258,15 +326,18 @@ public class MultiEncoderWindow {
 
             if (hackvertorCallback != null) {
                 JButton sendToHackvertorButton = new JButton("Send to Hackvertor");
+                applyPrimaryStyle(sendToHackvertorButton);
                 sendToHackvertorButton.addActionListener(e -> sendToHackvertor());
                 montoyaApi.userInterface().applyThemeToComponent(sendToHackvertorButton);
                 buttonPanel.add(sendToHackvertorButton);
             } else {
                 JButton sendToRepeaterButton = new JButton("Send to Repeater");
+                applyPrimaryStyle(sendToRepeaterButton);
                 sendToRepeaterButton.addActionListener(e -> sendToRepeater());
                 montoyaApi.userInterface().applyThemeToComponent(sendToRepeaterButton);
 
                 JButton sendToIntruderButton = new JButton("Send to Intruder");
+                applyPrimaryStyle(sendToIntruderButton);
                 sendToIntruderButton.addActionListener(e -> sendToIntruder());
                 montoyaApi.userInterface().applyThemeToComponent(sendToIntruderButton);
 
@@ -369,9 +440,14 @@ public class MultiEncoderWindow {
             ArrayList<Tag> filtered = new ArrayList<>();
             String lowerSearch = searchText.toLowerCase();
             for (Tag tag : tags) {
-                if (DANGEROUS_CATEGORIES.contains(tag.category) &&
-                    !enabledDangerousCategories.contains(tag.category)) {
-                    continue;
+                if (DANGEROUS_CATEGORIES.contains(tag.category)) {
+                    if (!enabledDangerousCategories.contains(tag.category)) {
+                        continue;
+                    }
+                } else {
+                    if (!enabledCategories.contains(tag.category)) {
+                        continue;
+                    }
                 }
                 if (lowerSearch.isEmpty() ||
                     tag.name.toLowerCase().contains(lowerSearch) ||
@@ -531,10 +607,13 @@ public class MultiEncoderWindow {
 
     private void refreshAllLayers() {
         for (Layer layer : layers) {
-            layer.selectedTags.removeIf(tag ->
-                    DANGEROUS_CATEGORIES.contains(tag.category) &&
-                    !enabledDangerousCategories.contains(tag.category)
-            );
+            layer.selectedTags.removeIf(tag -> {
+                if (DANGEROUS_CATEGORIES.contains(tag.category)) {
+                    return !enabledDangerousCategories.contains(tag.category);
+                } else {
+                    return !enabledCategories.contains(tag.category);
+                }
+            });
             layer.updateTags.run();
         }
         updatePreview();
@@ -686,21 +765,47 @@ public class MultiEncoderWindow {
             return;
         }
         boolean shouldConvert = "Convert".equals(modeComboBox.getSelectedItem());
-        ArrayList<String> variants = generateAllVariants(selectedText, shouldConvert);
+        ArrayList<String> taggedVariants = generateAllVariants(selectedText, false);
+        ArrayList<String> resultVariants = generateAllVariants(selectedText, shouldConvert);
+        String filterText = previewSearchField.getText().toLowerCase();
+
+        ArrayList<String> variantsToCopy = new ArrayList<>();
+        if (filterText.isEmpty()) {
+            variantsToCopy.addAll(resultVariants);
+        } else {
+            for (int i = 0; i < taggedVariants.size(); i++) {
+                if (taggedVariants.get(i).toLowerCase().contains(filterText)) {
+                    variantsToCopy.add(resultVariants.get(i));
+                }
+            }
+        }
+
+        if (variantsToCopy.isEmpty()) {
+            showWarningMessage("No variants match the filter.");
+            return;
+        }
+
         StringBuilder output = new StringBuilder();
-        for (int i = 0; i < variants.size(); i++) {
+        for (int i = 0; i < variantsToCopy.size(); i++) {
             if (i > 0) output.append("\n");
-            output.append(variants.get(i));
+            output.append(variantsToCopy.get(i));
         }
         StringSelection selection = new StringSelection(output.toString());
         Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
         clipboard.setContents(selection, null);
+
+        if (!filterText.isEmpty()) {
+            showInfoMessage("Copied " + variantsToCopy.size() + " filtered variant(s).");
+        } else {
+            showInfoMessage("Copied " + variantsToCopy.size() + " variant(s).");
+        }
     }
 
     private void updatePreview() {
         ArrayList<ArrayList<Tag>> allLayerTags = getAllLayerTags();
         if (allLayerTags.isEmpty()) {
-            previewArea.setText("No tags selected. Please select at least one tag in any layer.");
+            lastPreviewContent = "No tags selected. Please select at least one tag in any layer.";
+            previewArea.setText(lastPreviewContent);
             return;
         }
 
@@ -737,7 +842,57 @@ public class MultiEncoderWindow {
                    .append(" more variants not shown ...\n");
         }
 
-        previewArea.setText(preview.toString());
+        lastPreviewContent = preview.toString();
+        applyPreviewFilter();
+    }
+
+    private void applyPreviewFilter() {
+        String filterText = previewSearchField.getText().toLowerCase();
+        StyledDocument doc = previewArea.getStyledDocument();
+
+        Style defaultStyle = previewArea.addStyle("default", null);
+        StyleConstants.setBackground(defaultStyle, previewArea.getBackground());
+
+        Style highlightStyle = previewArea.addStyle("highlight", null);
+        StyleConstants.setBackground(highlightStyle, new Color(255, 255, 0));
+        StyleConstants.setForeground(highlightStyle, Color.BLACK);
+
+        if (filterText.isEmpty()) {
+            previewArea.setText(lastPreviewContent);
+            previewArea.setCaretPosition(0);
+            return;
+        }
+
+        String[] lines = lastPreviewContent.split("\n");
+        StringBuilder filteredContent = new StringBuilder();
+        ArrayList<int[]> highlights = new ArrayList<>();
+
+        for (String line : lines) {
+            if (line.toLowerCase().contains(filterText)) {
+                int lineStart = filteredContent.length();
+                filteredContent.append(line).append("\n");
+
+                String lowerLine = line.toLowerCase();
+                int searchStart = 0;
+                int idx;
+                while ((idx = lowerLine.indexOf(filterText, searchStart)) != -1) {
+                    highlights.add(new int[]{lineStart + idx, filterText.length()});
+                    searchStart = idx + 1;
+                }
+            }
+        }
+
+        if (filteredContent.isEmpty()) {
+            previewArea.setText("No matches found for: " + previewSearchField.getText());
+            return;
+        }
+
+        previewArea.setText(filteredContent.toString());
+
+        for (int[] highlight : highlights) {
+            doc.setCharacterAttributes(highlight[0], highlight[1], highlightStyle, false);
+        }
+
         previewArea.setCaretPosition(0);
     }
 
@@ -781,13 +936,16 @@ public class MultiEncoderWindow {
         ArrayList<String> variants = generateAllVariants(selectedText, shouldConvert);
 
         String modePrefix = shouldConvert ? "HV-" : "HVT-";
-        int variantNum = 1;
-        for (String variant : variants) {
+        ArrayList<Tag> layer1Tags = allLayerTags.get(0);
+        int variantsPerLayer1Tag = variants.size() / layer1Tags.size();
+        for (int i = 0; i < variants.size(); i++) {
+            String variant = variants.get(i);
             String modifiedRequestStr = requestStr.replace(selectedText, variant);
             HttpRequest modifiedRequest = HttpRequest.httpRequest(modifiedRequestStr);
-            String tabName = modePrefix + "V" + variantNum + "-" + selectedText.substring(0, Math.min(selectedText.length(), 10));
+            int layer1TagIndex = i / variantsPerLayer1Tag;
+            String layer1TagName = layer1Tags.get(layer1TagIndex).name;
+            String tabName = modePrefix + layer1TagName + "-" + selectedText.substring(0, Math.min(selectedText.length(), 10));
             montoyaApi.repeater().sendToRepeater(modifiedRequest, tabName);
-            variantNum++;
         }
 
         showInfoMessage("Sent " + variants.size() + " variant(s) to Repeater.");
@@ -821,20 +979,6 @@ public class MultiEncoderWindow {
         HttpRequestTemplate intruderTemplate = HttpRequestTemplate.httpRequestTemplate(baseRequest, Collections.singletonList(insertionPoint));
         String tabName = "HV-Layers-" + selectedText.substring(0, Math.min(selectedText.length(), 10));
         montoyaApi.intruder().sendToIntruder(baseRequestResponse.request().httpService(), intruderTemplate, tabName);
-
-        boolean shouldConvert = "Convert".equals(modeComboBox.getSelectedItem());
-        ArrayList<String> variants = generateAllVariants(selectedText, shouldConvert);
-
-        StringBuilder payloadList = new StringBuilder();
-        for (String variant : variants) {
-            payloadList.append(variant).append("\n");
-        }
-
-        StringSelection selection = new StringSelection(payloadList.toString());
-        Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-        clipboard.setContents(selection, null);
-
-        JOptionPane.showMessageDialog(window, "Sent to Intruder. " + variants.size() + " payload(s) copied to clipboard.", "Success", JOptionPane.INFORMATION_MESSAGE);
         window.dispose();
     }
 

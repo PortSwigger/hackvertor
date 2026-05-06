@@ -5,7 +5,6 @@ import burp.hv.settings.InvalidTypeSettingException;
 import burp.hv.settings.UnregisteredSettingException;
 import burp.hv.tags.Tag;
 import burp.hv.tags.TagStore;
-import burp.hv.ui.TagFinderWindow;
 import burp.hv.utils.GridbagUtils;
 import burp.hv.utils.TagUtils;
 import burp.hv.utils.Utils;
@@ -34,6 +33,8 @@ import java.util.concurrent.*;
 
 import static burp.hv.HackvertorExtension.*;
 import static burp.hv.Convertors.*;
+import static burp.hv.ui.UIUtils.*;
+import static burp.hv.ui.UIUtils.applyLengthStyle;
 import static java.awt.GridBagConstraints.*;
 import static java.awt.GridBagConstraints.BOTH;
 
@@ -70,39 +71,36 @@ public class HackvertorPanel extends JPanel {
         topBar.setPreferredSize(new Dimension(-1, 100));
         topBar.setMinimumSize(new Dimension(-1, 100));
         JLabel logoLabel;
-        if (isDarkTheme) {
-            logoLabel = new JLabel(createImageIcon("/images/logo-dark.png", "logo"));
-        } else {
-            logoLabel = new JLabel(createImageIcon("/images/logo-light.png", "logo"));
-        }
+        logoLabel = new JLabel(createImageIcon("/images/logo-light.png", "logo"));
         if (!showLogo) {
             logoLabel = new JLabel();
         }
         final JTextArea hexView = new JTextArea();
-        hexView.setFont(new Font("Courier New", Font.PLAIN, hexView.getFont().getSize()));
+        applyTextAreaBorderStyle(hexView);
+        // Use a generic monospaced font for hex display/editing
+        hexView.setFont(new Font(Font.MONOSPACED, Font.PLAIN, hexView.getFont().getSize()));
         hexView.setRows(0);
         hexView.setOpaque(true);
-        hexView.setEditable(false);
+        // Allow editing so users can paste or type hex directly
+        hexView.setEditable(true);
+        // Enable line wrap but avoid breaking in the middle of words/bytes
         hexView.setLineWrap(true);
-        if (!isDarkTheme) {
-            hexView.setBackground(Color.decode("#FFF5BF"));
-            hexView.setBorder(BorderFactory.createLineBorder(Color.decode("#FF9900"), 1));
-        }
+        hexView.setWrapStyleWord(true);
         hexView.setVisible(false);
         final JScrollPane hexScroll = new JScrollPane(hexView);
         hexScroll.setPreferredSize(new Dimension(-1, 100));
         hexScroll.setMinimumSize(new Dimension(-1, 100));
+        // Split buttons into left and right sections so we can align important actions (like Smart Decode / Apply hex)
+        // Use GridBagLayout so button groups can reflow vertically when horizontal space is limited.
         JPanel buttonsPanel = new JPanel(new GridBagLayout());
+        JPanel leftButtons = new JPanel(new WrapLayout(FlowLayout.LEFT, 5, 5));
+        // use WrapLayout for the right side too so buttons wrap into additional rows when needed
         inputArea.setLineWrap(true);
         inputArea.setRows(0);
         final UndoManager undo = new UndoManager();
         Document doc = inputArea.getDocument();
 
-        doc.addUndoableEditListener(new UndoableEditListener() {
-            public void undoableEditHappened(UndoableEditEvent evt) {
-                undo.addEdit(evt.getEdit());
-            }
-        });
+        doc.addUndoableEditListener(evt -> undo.addEdit(evt.getEdit()));
         inputArea.getActionMap().put("Undo",
                 new AbstractAction("Undo") {
                     public void actionPerformed(ActionEvent evt) {
@@ -110,7 +108,7 @@ public class HackvertorPanel extends JPanel {
                             if (undo.canUndo()) {
                                 undo.undo();
                             }
-                        } catch (CannotUndoException e) {
+                        } catch (CannotUndoException ignored) {
                         }
                     }
                 });
@@ -122,7 +120,7 @@ public class HackvertorPanel extends JPanel {
                             if (undo.canRedo()) {
                                 undo.redo();
                             }
-                        } catch (CannotRedoException e) {
+                        } catch (CannotRedoException ignored) {
                         }
                     }
                 });
@@ -131,22 +129,11 @@ public class HackvertorPanel extends JPanel {
         final JScrollPane inputScroll = new JScrollPane(inputArea);
         final JLabel inputLabel = new JLabel("Input:");
         final JLabel inputLenLabel = new JLabel("0");
+        applyLengthStyle(inputLenLabel);
         final JLabel inputRealLenLabel = new JLabel("0");
+        applyUnicodeLengthStyle(inputRealLenLabel);
         inputRealLenLabel.setOpaque(true);
-        if (!isDarkTheme) {
-            inputRealLenLabel.setForeground(Color.decode("#ffffff"));
-            inputRealLenLabel.setBackground(Color.decode("#ff0027"));
-            inputRealLenLabel.setBorder(BorderFactory.createLineBorder(Color.decode("#CCCCCC"), 1));
-        } else {
-            inputRealLenLabel.setForeground(Color.decode("#000000"));
-            inputRealLenLabel.setBackground(Color.decode("#b6b6b6"));
-            inputRealLenLabel.setBorder(BorderFactory.createLineBorder(Color.decode("#CCCCCC"), 1));
-        }
         inputLenLabel.setOpaque(true);
-        if (!isDarkTheme) {
-            inputLenLabel.setBackground(Color.decode("#FFF5BF"));
-            inputLenLabel.setBorder(BorderFactory.createLineBorder(Color.decode("#FF9900"), 1));
-        }
         if(!hideOutput) {
             DocumentListener documentListener = new DocumentListener() {
                 LinkedBlockingQueue queue = new LinkedBlockingQueue<>(1);
@@ -247,22 +234,11 @@ public class HackvertorPanel extends JPanel {
         final JScrollPane outputScroll = new JScrollPane(outputArea);
         final JLabel outputLabel = new JLabel("Output:");
         final JLabel outputLenLabel = new JLabel("0");
+        applyLengthStyle(outputLenLabel);
         final JLabel outputRealLenLabel = new JLabel("0");
+        applyUnicodeLengthStyle(outputRealLenLabel);
         outputRealLenLabel.setOpaque(true);
-        if (!isDarkTheme) {
-            outputRealLenLabel.setForeground(Color.decode("#ffffff"));
-            outputRealLenLabel.setBackground(Color.decode("#ff0027"));
-            outputRealLenLabel.setBorder(BorderFactory.createLineBorder(Color.decode("#CCCCCC"), 1));
-        } else {
-            outputRealLenLabel.setForeground(Color.decode("#000000"));
-            outputRealLenLabel.setBackground(Color.decode("#b6b6b6"));
-            outputRealLenLabel.setBorder(BorderFactory.createLineBorder(Color.decode("#CCCCCC"), 1));
-        }
         outputLenLabel.setOpaque(true);
-        if (!isDarkTheme) {
-            outputLenLabel.setBackground(Color.decode("#FFF5BF"));
-            outputLenLabel.setBorder(BorderFactory.createLineBorder(Color.decode("#FF9900"), 1));
-        }
         DocumentListener documentListener2 = new DocumentListener() {
             public void changedUpdate(DocumentEvent documentEvent) {
                 updateLen(documentEvent);
@@ -299,10 +275,6 @@ public class HackvertorPanel extends JPanel {
         });
         final JButton swapButton = new JButton("Swap");
         swapButton.setToolTipText("Swap input and output content");
-        if (!isNativeTheme && !isDarkTheme) {
-            swapButton.setBackground(Color.black);
-            swapButton.setForeground(Color.white);
-        }
         swapButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 inputArea.setText(outputArea.getText());
@@ -319,10 +291,6 @@ public class HackvertorPanel extends JPanel {
                 inputArea.selectAll();
             }
         });
-        if (!isNativeTheme && !isDarkTheme) {
-            selectInputButton.setForeground(Color.white);
-            selectInputButton.setBackground(Color.black);
-        }
 
         final JButton selectOutputButton = new JButton("Select output");
         selectOutputButton.setToolTipText("Select all text in the output area");
@@ -332,10 +300,6 @@ public class HackvertorPanel extends JPanel {
                 outputArea.selectAll();
             }
         });
-        if (!isNativeTheme && !isDarkTheme) {
-            selectOutputButton.setForeground(Color.white);
-            selectOutputButton.setBackground(Color.black);
-        }
 
         final JButton clearTagsButton = new JButton("Clear tags");
         clearTagsButton.setToolTipText("Remove all Hackvertor tags from input");
@@ -347,10 +311,6 @@ public class HackvertorPanel extends JPanel {
                 inputArea.requestFocus();
             }
         });
-        if (!isNativeTheme && !isDarkTheme) {
-            clearTagsButton.setForeground(Color.white);
-            clearTagsButton.setBackground(Color.black);
-        }
 
         final JButton clearButton = new JButton("Clear");
         clearButton.setToolTipText("Clear both input and output areas");
@@ -361,10 +321,6 @@ public class HackvertorPanel extends JPanel {
                 inputArea.requestFocus();
             }
         });
-        if (!isNativeTheme && !isDarkTheme) {
-            clearButton.setForeground(Color.white);
-            clearButton.setBackground(Color.black);
-        }
 
         final JButton pasteInsideButton = new JButton("Paste inside tags");
         pasteInsideButton.setToolTipText("Paste clipboard content inside existing Hackvertor tags");
@@ -410,10 +366,6 @@ public class HackvertorPanel extends JPanel {
                 inputArea.setText(TagUtils.elementSequenceToString(inputElements));
             }
         });
-        if (!isNativeTheme && !isDarkTheme) {
-            pasteInsideButton.setForeground(Color.white);
-            pasteInsideButton.setBackground(Color.black);
-        }
 
         final JButton convertButton = new JButton("Convert");
         convertButton.setToolTipText("Manually convert input to output");
@@ -426,14 +378,10 @@ public class HackvertorPanel extends JPanel {
 
             }
         });
-        if (!isNativeTheme && !isDarkTheme) {
-            convertButton.setBackground(Color.decode("#005a70"));
-            convertButton.setForeground(Color.white);
-        }
 
-        final JButton decode = new JButton("Smart Decode Ctrl+Alt+D");
-        decode.setToolTipText("Automatically decode selected text (Ctrl+Alt+D)");
-        decode.setEnabled(false);
+        final JButton decode = new JButton("Smart Decode");
+        UIUtils.applyPrimaryStyle(decode);
+        decode.setToolTipText("Decode selected text, or decode partial matches in full input if nothing selected (Ctrl+Alt+D)");
         inputArea.getInputMap().put(KeyStroke.getKeyStroke("control alt D"), "smartDecode");
         SmartDecodeAction smartDecodeAction = new SmartDecodeAction(this.inputArea, null, hackvertor);
         inputArea.getActionMap().put("smartDecode", smartDecodeAction);
@@ -484,8 +432,8 @@ public class HackvertorPanel extends JPanel {
         this.inputArea.addCaretListener(new CaretListener() {
             @Override
             public void caretUpdate(CaretEvent e) {
-                decode.setEnabled(inputArea.getSelectionStart() != inputArea.getSelectionEnd());
-                rehydrateTagExecutionKey.setEnabled(inputArea.getSelectionStart() != inputArea.getSelectionEnd());
+                boolean hasSelection = inputArea.getSelectionStart() != inputArea.getSelectionEnd();
+                rehydrateTagExecutionKey.setEnabled(hasSelection);
             }
         });
         rehydrateTagExecutionKey.addActionListener((x) -> {
@@ -496,7 +444,7 @@ public class HackvertorPanel extends JPanel {
             }
         });
 
-        final JButton firstButton = new JButton("⏮");
+        final JButton firstButton = new JButton("↞");
         firstButton.setEnabled(!hideOutput);
         firstButton.setToolTipText("First history entry");
         firstButton.setPreferredSize(new Dimension(50, firstButton.getPreferredSize().height));
@@ -505,10 +453,6 @@ public class HackvertorPanel extends JPanel {
                 navigateToFirst();
             }
         });
-        if (!isNativeTheme && !isDarkTheme) {
-            firstButton.setForeground(Color.white);
-            firstButton.setBackground(Color.black);
-        }
 
         final JButton previousButton = new JButton("←");
         previousButton.setEnabled(!hideOutput);
@@ -519,10 +463,6 @@ public class HackvertorPanel extends JPanel {
                 navigateHistory(true);
             }
         });
-        if (!isNativeTheme && !isDarkTheme) {
-            previousButton.setForeground(Color.white);
-            previousButton.setBackground(Color.black);
-        }
 
         historyPositionLabel = new JLabel("0/0");
         historyPositionLabel.setEnabled(!hideOutput);
@@ -539,12 +479,8 @@ public class HackvertorPanel extends JPanel {
                 navigateHistory(false);
             }
         });
-        if (!isNativeTheme && !isDarkTheme) {
-            nextButton.setForeground(Color.white);
-            nextButton.setBackground(Color.black);
-        }
 
-        final JButton lastButton = new JButton("⏭");
+        final JButton lastButton = new JButton("↠");
         lastButton.setEnabled(!hideOutput);
         lastButton.setToolTipText("Last history entry");
         lastButton.setPreferredSize(new Dimension(50, lastButton.getPreferredSize().height));
@@ -553,10 +489,6 @@ public class HackvertorPanel extends JPanel {
                 navigateToLast();
             }
         });
-        if (!isNativeTheme && !isDarkTheme) {
-            lastButton.setForeground(Color.white);
-            lastButton.setBackground(Color.black);
-        }
 
         final JButton clearHistoryButton = new JButton("Clear history");
         clearHistoryButton.setToolTipText("Clear all Hackvertor history");
@@ -583,52 +515,72 @@ public class HackvertorPanel extends JPanel {
                 }
             }
         });
-        if (!isNativeTheme && !isDarkTheme) {
-            clearHistoryButton.setForeground(Color.white);
-            clearHistoryButton.setBackground(Color.black);
-        }
 
-        java.util.List<JComponent> buttonComponents = new java.util.ArrayList<>();
-        buttonComponents.add(clearButton);
-        buttonComponents.add(firstButton);
-        buttonComponents.add(previousButton);
-        buttonComponents.add(historyPositionLabel);
-        buttonComponents.add(nextButton);
-        buttonComponents.add(lastButton);
-        buttonComponents.add(clearHistoryButton);
-        buttonComponents.add(clearTagsButton);
-        buttonComponents.add(rehydrateTagExecutionKey);
-        if(!hideOutput) {
-            buttonComponents.add(swapButton);
-        }
-        buttonComponents.add(selectInputButton);
-        if(!hideOutput) {
-            buttonComponents.add(selectOutputButton);
-            buttonComponents.add(pasteInsideButton);
-            buttonComponents.add(decode);
-            buttonComponents.add(convertButton);
-        } else {
-            buttonComponents.add(decode);
-        }
-
-        int fitIndices = 0;
-        int decodeButtonIndex = -1;
-        if (!isMessageEditor) {
-            fitIndices |= (1 << 1);
-            fitIndices |= (1 << 2);
-            fitIndices |= (1 << 3);
-            fitIndices |= (1 << 4);
-            fitIndices |= (1 << 5);
-        } else {
-            for (int i = 0; i < buttonComponents.size(); i++) {
-                if (buttonComponents.get(i) == decode) {
-                    decodeButtonIndex = i;
-                    break;
+        final JButton applyHex = new JButton("Apply hex");
+        applyHex.setToolTipText("Replace selected text with the hex value from the hex field");
+        applyHex.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                String hexText = hexView.getText();
+                if (hexText == null || hexText.trim().isEmpty()) return;
+                // convert hex (which may contain spaces/comma/dashes) to ascii (local implementation to avoid visibility issues)
+                StringBuilder sb = new StringBuilder();
+                java.util.regex.Pattern p = java.util.regex.Pattern.compile("([0-9a-fA-F]{2})[\\s,\\-]?");
+                java.util.regex.Matcher m = p.matcher(hexText);
+                while (m.find()) {
+                    m.appendReplacement(sb, "");
+                    sb.append((char) Integer.parseInt(m.group(1), 16));
+                }
+                String replaced = sb.toString();
+                // prefer replacing selection in inputArea, then outputArea, otherwise insert into inputArea
+                try {
+                    if (inputArea.getSelectionStart() != inputArea.getSelectionEnd()) {
+                        inputArea.replaceSelection(replaced);
+                        inputArea.requestFocus();
+                    } else if (outputArea.getSelectionStart() != outputArea.getSelectionEnd()) {
+                        outputArea.replaceSelection(replaced);
+                        outputArea.requestFocus();
+                    } else {
+                        inputArea.replaceSelection(replaced);
+                        inputArea.requestFocus();
+                    }
+                } catch (Exception ex) {
+                    stderr.println("Error applying hex: " + ex.getMessage());
                 }
             }
-        }
+        });
 
-        GridLikeLayout.apply(buttonsPanel, buttonComponents, isMessageEditor ? 2 : 1, fitIndices, decodeButtonIndex);
+        leftButtons.add(clearButton);
+        leftButtons.add(firstButton);
+        leftButtons.add(previousButton);
+        leftButtons.add(historyPositionLabel);
+        leftButtons.add(nextButton);
+        leftButtons.add(lastButton);
+        leftButtons.add(clearHistoryButton);
+        leftButtons.add(clearTagsButton);
+        leftButtons.add(rehydrateTagExecutionKey);
+        if(!hideOutput) {
+            leftButtons.add(swapButton);
+        }
+        leftButtons.add(selectInputButton);
+        if (!hideOutput) {
+            leftButtons.add(selectOutputButton);
+            leftButtons.add(pasteInsideButton);
+        }
+        leftButtons.add(decode);
+
+        // Move the Convert button to the right panel (keep Smart Decode on the left)
+        leftButtons.add(convertButton);
+        leftButtons.add(applyHex);
+
+    // place left and right groups into buttonsPanel using GridBag so they can wrap and grow vertically
+    GridBagConstraints gbc = new GridBagConstraints();
+    gbc.gridx = 0;
+    gbc.gridy = 0;
+    gbc.weightx = 1.0;
+    gbc.fill = GridBagConstraints.HORIZONTAL;
+    gbc.anchor = GridBagConstraints.WEST;
+    buttonsPanel.add(leftButtons, gbc);
         GridBagConstraints c = GridbagUtils.createConstraints(1, 0, 1, GridBagConstraints.NONE, 0, 0, 0, 0, CENTER);
         c.anchor = FIRST_LINE_END;
         c.ipadx = 20;
@@ -702,9 +654,8 @@ public class HackvertorPanel extends JPanel {
         c.anchor = LAST_LINE_START;
         c.fill = BOTH;
         c.weightx = 1.0;
-        if(!hideOutput) {
-            this.add(hexScroll, c);
-        }
+        // Always show the hex view so users can edit/paste hex even when the output panel is hidden
+        this.add(hexScroll, c);
     }
 
     public JTabbedPane buildTabbedPane(boolean shouldSelectInput){
@@ -728,7 +679,8 @@ public class HackvertorPanel extends JPanel {
         }
 
         JPanel tagStoreContainer = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JButton tagStoreButton = new JButton("Open tag Store");
+        JButton tagStoreButton = new JButton("Open");
+        tagStoreButton.setToolTipText("Open tag store");
         tagStoreButton.setPreferredSize(new Dimension(120, 25));
         tagStoreButton.addActionListener((e) -> {
             TagStore.showTagStore();

@@ -452,6 +452,7 @@ public class Hackvertor {
         // Auto decode
         addTag(Tag.Category.Decode, "auto_decode", true, "auto_decode(String str)");
         addTag(Tag.Category.Decode, "auto_decode_no_decrypt", true, "auto_decode_no_decrypt(String str)");
+        addTag(Tag.Category.Decode, "auto_decode_partial", true, "auto_decode_partial(String str)");
 
         // UTF7
         addTag(Tag.Category.Decode, "d_utf7", true, "utf7Decode(String str)");
@@ -718,7 +719,7 @@ public class Hackvertor {
 
         // File operations
         addTag(Tag.Category.System, "read_file", true, "read_file(String filepath, String charset, Boolean enabled, String codeExecuteKey)",
-               "string", "UTF-8", "boolean", "false", "string", tagCodeExecutionKey);
+               "string", "ISO-8859-1", "boolean", "false", "string", tagCodeExecutionKey);
 
         // System commands
         addTag(Tag.Category.System, "system", true, "system(String cmd, Boolean enabled, String codeExecuteKey)",
