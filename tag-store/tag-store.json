@@ -256,7 +256,7 @@
     "numberOfArgs": 0
   },
   {
-   "description": "Turn a CSV string into a valid XSLX string",
+   "description": "Turn a CSV string into a valid XLSX string",
    "language": "Python",
    "tagName": "csv_to_xlsx",
    "author": "bylbok",
