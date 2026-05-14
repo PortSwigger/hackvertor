@@ -2,7 +2,7 @@ import zipfile
 import StringIO
 import time
 
-# Turn a CSV string into a valid XSLX string
+# Turn a CSV string into a valid XLSX string
 def csv_to_xlsx(csv_content):
     # 1. Generate the Sheet XML
     lines = csv_content.strip().split('\n')
