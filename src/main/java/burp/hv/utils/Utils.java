@@ -176,9 +176,9 @@ public class Utils {
             @Override
             public void actionPerformed(ActionEvent e) {
                 String bambdaCode = "var hackvertorConvert = (java.util.function.Function) System.getProperties().get(\"hackvertor.convert\");\n" +
-                        "var hackvertorGetTagExecutionKey = (java.util.function.Function) System.getProperties().get(\"hackvertor.getTagExecutionKey\");\n" +
+                        "var hackvertorGetTagExecutionKey = (java.util.function.Supplier) System.getProperties().get(\"hackvertor.getTagExecutionKey\");\n" +
                         "if(hackvertorConvert != null && hackvertorGetTagExecutionKey != null) {\n" +
-                        "  var executionKey = (String) hackvertorGetTagExecutionKey.apply(null);\n" +
+                        "  var executionKey = (String) hackvertorGetTagExecutionKey.get();\n" +
                         "  logging().logToOutput(hackvertorConvert.apply(\"<@python('output = input.upper()','\" + executionKey + \"')>test</@python>\"));\n" +
                         "}";
                 Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(bambdaCode), null);
