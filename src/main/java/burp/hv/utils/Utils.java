@@ -14,6 +14,7 @@ import javax.swing.*;
 import javax.swing.border.Border;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.WindowAdapter;
@@ -170,10 +171,22 @@ public class Utils {
                 TagAutomator.showRulesDialog();
             }
         });
+        JMenuItem copyBambdaCodeMenu = new JMenuItem("Copy Bambda code to clipboard");
+        copyBambdaCodeMenu.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                String bambdaCode = "var hackvertorConvert = (java.util.function.Function) System.getProperties().get(\"hackvertor.convert\");\n" +
+                        "if(hackvertorConvert != null) {\n" +
+                        "  logging().logToOutput(hackvertorConvert.apply(\"<@base64>test</@base64>\"));\n" +
+                        "}";
+                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(bambdaCode), null);
+            }
+        });
         hvMenuBar.add(createCustomTagsMenu);
         hvMenuBar.add(listCustomTagsMenu);
         hvMenuBar.add(globalVariablesMenu);
         hvMenuBar.add(tagAutomatorMenu);
+        hvMenuBar.add(copyBambdaCodeMenu);
         hvMenuBar.addSeparator();
         hvMenuBar.add(tagStoreMenu);
         JMenuItem settingsMenu = new JMenuItem("Settings");
