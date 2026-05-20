@@ -1,5 +1,12 @@
 # Changelog
 
+## Version v2.2.51 (2026-05-20)
+
+- - Made request/response available in Tag Automator - Fixed UTF-8 issues in requests - Fixed context body to convert tags
+- Merge remote-tracking branch 'origin/master'
+- Changed shared get tag execution key to be a Supplier instead of Function
+- Update CHANGELOG.md for v2.2.47
+
 ## Version v2.2.47 (2026-05-20)
 
 - Added shared get tag execution key function and updated bambda code
