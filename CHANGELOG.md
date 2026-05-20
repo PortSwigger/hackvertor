@@ -3,15 +3,9 @@
 ## Version v2.2.46 (2026-05-20)
 
 - Added copy Bambda to clipboard option and a shared Hackvertor function
-- Merge pull request #166 from bylbok-ctf/master
-- typo
-- Struggling with dyslexia... .
 - Create csv_to_xlsx.py
 - Added csv_to_xslx tag to the tag store JSON file
-- Merge pull request #165 from floyd-fuh/master
-- Merge branch 'master' of https://github.com/floyd-fuh/hackvertor
 - New textToPdf tag
-- Update CHANGELOG.md for v2.2.45
 
 ## Version v2.2.45 (2026-05-06)
 

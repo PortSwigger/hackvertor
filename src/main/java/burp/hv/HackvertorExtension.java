@@ -48,7 +48,8 @@ import static burp.hv.utils.TagUtils.generateTagActionListener;
 public class HackvertorExtension implements BurpExtension, IBurpExtender, ITab, IExtensionStateListener, IMessageEditorTabFactory {
     //TODO Unset on unload
     public static String extensionName = "Hackvertor";
-    public static String version = "v2.2.46";
+    public static String version = "v2.2.47";
+    public static Function<String, String> sharedGetTagExecutionKey = null;
     public static Function<String, String> sharedConvert = null;
     public static JFrame HackvertorFrame = null;
     public static IBurpExtenderCallbacks callbacks;
@@ -128,7 +129,10 @@ public class HackvertorExtension implements BurpExtension, IBurpExtender, ITab, 
             Variables.loadGlobalVariables();
             registerPayloadProcessors();
             Function<String, String> sharedConvert = (input) -> hackvertor.convert(input, hackvertor);
+            Function<String, String> sharedGetTagExecutionKey = ignored -> tagCodeExecutionKey;
             System.getProperties().put("hackvertor.convert", sharedConvert);
+            System.getProperties().put("hackvertor.getTagExecutionKey", sharedGetTagExecutionKey);
+
         } catch (Exception ignored) {}
 
         SwingUtilities.invokeLater(() -> {
@@ -174,7 +178,9 @@ public class HackvertorExtension implements BurpExtension, IBurpExtender, ITab, 
         executorService.shutdownNow();
         ngrams = null;
         System.getProperties().remove("hackvertor.convert");
+        System.getProperties().remove("hackvertor.getTagExecutionKey");
         sharedConvert = null;
+        sharedGetTagExecutionKey = null;
         callbacks.printOutput(extensionName + " unloaded");
     }
 
