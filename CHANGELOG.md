@@ -1,5 +1,10 @@
 # Changelog
 
+## Version v2.2.47 (2026-05-20)
+
+- Added shared get tag execution key function and updated bambda code
+- Update CHANGELOG.md for v2.2.46
+
 ## Version v2.2.46 (2026-05-20)
 
 - Added copy Bambda to clipboard option and a shared Hackvertor function
