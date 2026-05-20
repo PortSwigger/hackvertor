@@ -1,5 +1,6 @@
 package burp.hv;
 import burp.api.montoya.http.message.requests.HttpRequest;
+import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.utilities.CompressionType;
 import burp.hv.tags.CustomTags;
 import burp.hv.tags.Tag;
@@ -21,6 +22,7 @@ public class Hackvertor {
     private final ArrayList<Tag> tags = new ArrayList<Tag>();
     private JSONArray customTags = new JSONArray();
     private HttpRequest request;
+    private HttpResponse response;
 
     // Faker registry to replace reflection-based approach
     private static final Map<String, List<String>> FAKER_PROPERTIES = new HashMap<>();
@@ -215,6 +217,14 @@ public class Hackvertor {
 
     public void setRequest(HttpRequest request) {
         this.request = request;
+    }
+
+    public HttpResponse getResponse() {
+        return response;
+    }
+
+    public void setResponse(HttpResponse response) {
+        this.response = response;
     }
 
     public boolean hasCustomTag(String tagName) {

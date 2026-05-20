@@ -1,6 +1,5 @@
 package burp.hv.ui;
 
-import burp.hv.HackvertorExtension;
 import burp.hv.Hackvertor;
 import burp.IMessageEditorTab;
 import burp.hv.settings.InvalidTypeSettingException;
@@ -11,6 +10,7 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.awt.event.HierarchyEvent;
+import java.nio.charset.StandardCharsets;
 
 import static burp.hv.HackvertorExtension.generalSettings;
 
@@ -59,7 +59,7 @@ public class HackvertorMessageTab implements IMessageEditorTab {
                         hackvertorContainer.add(hackvertorPanel);
                         if (currentMessage != null) {
                             // Set the text programmatically and avoid marking the tab as "changed".
-                            hackvertorPanel.getInputArea().setText(HackvertorExtension.helpers.bytesToString(currentMessage));
+                            hackvertorPanel.getInputArea().setText(new String(currentMessage, StandardCharsets.UTF_8));
                             changed = false;
                         }
                         interfaceCreated = true;
@@ -92,7 +92,7 @@ public class HackvertorMessageTab implements IMessageEditorTab {
         } else {
             if (hackvertorPanel != null) {
                 // Set text programmatically; don't treat this as a user edit.
-                hackvertorPanel.getInputArea().setText(HackvertorExtension.helpers.bytesToString(content));
+                hackvertorPanel.getInputArea().setText(new String(content, StandardCharsets.UTF_8));
                 changed = false;
             }
         }
@@ -102,7 +102,7 @@ public class HackvertorMessageTab implements IMessageEditorTab {
     @Override
     public byte[] getMessage() {
         if (changed) {
-            return HackvertorExtension.helpers.stringToBytes(hackvertorPanel.getInputArea().getText());
+            return hackvertorPanel.getInputArea().getText().getBytes(StandardCharsets.UTF_8);
         } else {
             return currentMessage;
         }
@@ -116,6 +116,6 @@ public class HackvertorMessageTab implements IMessageEditorTab {
 
     @Override
     public byte[] getSelectedData() {
-        return HackvertorExtension.helpers.stringToBytes(hackvertorPanel.getInputArea().getSelectedText());
+        return hackvertorPanel.getInputArea().getSelectedText().getBytes(StandardCharsets.UTF_8);
     }
 }
