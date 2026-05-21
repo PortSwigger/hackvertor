@@ -1,14 +1,28 @@
 <p>
-	Hackvertor is a powerful, versatile tool designed to supercharge your workflows by seamlessly converting, encoding, and transforming text or code. Whether you're a developer, hacker, or tech enthusiast, Hackvertor empowers you with advanced features like custom scripting, real-time preview, and an extensive library of transformations. It's your ultimate sidekick for tackling complex encoding challenges, optimizing processes, and unleashing creativity with precision and speed.
+Hackvertor is a tag-based conversion tool for transforming, encoding, decoding, encrypting, hashing, and otherwise manipulating data inside Burp Suite. Operations are expressed as XML-like tags such as <code>&lt;@base64&gt;text&lt;/@base64&gt;</code>, which can be nested to any depth and accept string, boolean, or numeric arguments to compose complex conversion chains.
 </p>
 
-<h2>How to use</h2>
+<h2>Features</h2>
 
 <ul>
-	<li>Navigate to the Hackvertor tab and enter some text in the input window</li>
-	<li>Make a selection of the text, and select one of the tags from the tag menu at the top</li>
-	<li>Click on of the tags to add it to the input</li>
-	<li>Hackvertor will convert the tags in the input and show the converted output</li>
+<li>Large built-in tag library covering encoding, decoding, encryption, decryption, hashing, HMAC, compression, charset conversion, date, math, string manipulation, XSS payloads, conditions, and system operations.</li>
+<li>Unlimited tag nesting that evaluates from the innermost tag outwards, letting you build multi-step conversion pipelines in a single expression.</li>
+<li>Use tags directly in Repeater requests and in any request editor via a dedicated message editor tab, so the server receives the converted payload while you keep the readable tag in view.</li>
+<li>Create custom tags in JavaScript, Python, Groovy, or Java to extend the tag set with your own conversion logic.</li>
+<li>AI-assisted workflows: generate custom tag code from a natural-language prompt, run AI-only custom tags, auto-summarise custom tag code, and analyse Repeater traffic to derive encoding and decoding tags automatically.</li>
+<li>Global variables that can be referenced across tags and sessions, plus a Tag Automator for scripted multi-tag execution against requests and responses.</li>
+<li>Smart auto-decoding to identify and unwrap unknown encodings, with WebSocket support through the Montoya API.</li>
+<li>Copy converted output as a Bambda for reuse in other Burp features.</li>
+</ul>
+
+<h2>Usage</h2>
+
+<ul>
+<li>Open the Hackvertor tab in Burp Suite and type or paste text into the input pane.</li>
+<li>Select the text you want to convert, then browse the category tabs (Encode, Decode, Hash, Encrypt, Languages, and so on) and click a tag to wrap the selection.</li>
+<li>Hackvertor evaluates the tags from the innermost outwards and shows the converted result in the output pane.</li>
+<li>To use tags in live traffic, right-click a request in Repeater and choose the Hackvertor menu, or switch a request editor to the Hackvertor message tab. Tags are rendered on send so the server receives the converted request.</li>
+<li>Open the Hackvertor menu and choose Create custom tag to add your own tag in JavaScript, Python, Groovy, Java, or AI, and manage stored variables under Global variables.</li>
 </ul>
 
 <h2>Hackvertor AI features</h2>
@@ -19,13 +33,11 @@
 
 <h4>How to enable it</h4>
 
-<p>Go to "Hackvertor settings" in the "Hackvertor" menu and check the following options: Hackvertor -&gt; Settings -&gt; AI -&gt; Use AI to generate code</p>
+<p>Go to Hackvertor settings in the Hackvertor menu and check the following options: Hackvertor -&gt; Settings -&gt; AI -&gt; Use AI to generate code</p>
 
 <h4>How it works</h4>
 
-<p>Go to the Hackvertor menu and create a custom tag (Hackvertor -&gt; Create custom tag). Give it a tag name, such as "Reverse" and select your language. In this example, we will use "JavaScript".<br>
-In the code box, type your prompt. For example, "Reverse this text".<br>
-Then click the "Use AI to generate code" button. This will generate the JavaScript code for you, based on the given prompt.</p>
+<p>Go to the Hackvertor menu and create a custom tag (Hackvertor -&gt; Create custom tag). Give it a tag name, such as Reverse, and select your language. In this example, we will use JavaScript. In the code box, type your prompt. For example, "Reverse this text". Then click the Use AI to generate code button. This will generate the JavaScript code for you, based on the given prompt.</p>
 
 <h3>AI custom tags</h3>
 
@@ -33,17 +45,15 @@ Then click the "Use AI to generate code" button. This will generate the JavaScri
 
 <h4>How to enable it</h4>
 
-<p>Go to "Hackvertor settings" in the "Hackvertor" menu and check the following options:</p>
+<p>Go to Hackvertor settings in the Hackvertor menu and check the following options:</p>
 
 <ul>
-	<li>Hackvertor -&gt; Settings -&gt; AI -&gt; Use AI to generate code</li>
+<li>Hackvertor -&gt; Settings -&gt; AI -&gt; Use AI to generate code</li>
 </ul>
 
 <h4>How it works</h4>
 
-<p>Go to the Hackvertor menu and create a custom tag (Hackvertor -&gt; Create custom tag). Give it a tag name, such as "Reverse" and select "AI" as the language.<br>
-In the code box, type your prompt. For example, "Reverse this text".<br>
-Then click "Create tag". You can now use this custom tag in the Hackvertor interface.</p>
+<p>Go to the Hackvertor menu and create a custom tag (Hackvertor -&gt; Create custom tag). Give it a tag name, such as Reverse, and select AI as the language. In the code box, type your prompt. For example, "Reverse this text". Then click Create tag. You can now use this custom tag in the Hackvertor interface.</p>
 
 <h3>Summarise custom tag code</h3>
 
@@ -51,18 +61,18 @@ Then click "Create tag". You can now use this custom tag in the Hackvertor inter
 
 <h4>How to enable it</h4>
 
-<p>Go to "Hackvertor settings" in the "Hackvertor" menu and check the following options:</p>
+<p>Go to Hackvertor settings in the Hackvertor menu and check the following options:</p>
 
 <ul>
-	<li>Hackvertor -&gt; Settings -&gt; AI -&gt; Use AI to generate code</li>
-	<li>Hackvertor -&gt; Settings -&gt; AI -&gt; Use AI to summarise custom tag code</li>
+<li>Hackvertor -&gt; Settings -&gt; AI -&gt; Use AI to generate code</li>
+<li>Hackvertor -&gt; Settings -&gt; AI -&gt; Use AI to summarise custom tag code</li>
 </ul>
 
 <h4>How it works</h4>
 
 <p>Simply create a custom tag in a language, such as JavaScript, and Hackvertor will automatically give you a text description of what the code does.</p>
 
-<p><strong>Note:</strong> This does not work when creating an AI custom tag, as the prompt itself provides a description.</p>
+<p>Note: This does not work when creating an AI custom tag, as the prompt itself provides a description.</p>
 
 <h3>Learn from Repeater</h3>
 
@@ -70,36 +80,32 @@ Then click "Create tag". You can now use this custom tag in the Hackvertor inter
 
 <h4>How to enable it</h4>
 
-<p>Go to "Hackvertor settings" in the "Hackvertor" menu and check the following options:</p>
+<p>Go to Hackvertor settings in the Hackvertor menu and check the following options:</p>
 
 <ul>
-	<li>Hackvertor -&gt; Settings -&gt; AI -&gt; Use AI to generate code</li>
-	<li>Hackvertor -&gt; Settings -&gt; AI -&gt; Use AI to learn from Repeater</li>
+<li>Hackvertor -&gt; Settings -&gt; AI -&gt; Use AI to generate code</li>
+<li>Hackvertor -&gt; Settings -&gt; AI -&gt; Use AI to learn from Repeater</li>
 </ul>
 
 <h4>How it works</h4>
 
-<p> In Repeater, you need a request with an unknown encoding. For example, "\x66\x6F\x6F\x62\x61\x72"</p>
+<p>In Repeater, you need a request with an unknown encoding. For example, \x66\x6F\x6F\x62\x61\x72</p>
 
 <p>Place this value in a GET parameter. For example:</p>
 
-<pre><code>
-	GET /?x=\x66\x6F\x6F\x62\x61\x72 HTTP/2<br>
-	Host: hackvertor.co.uk<br>
-	Accept-Encoding: gzip, deflate, br<br>
-	Accept: */*<br>
-	Accept-Language: en-US;q=0.9,en;q=0.8<br>
-	User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.138 Safari/537.36<br>
-	Cache-Control: max-age=0<br>
-	<br>
+<pre><code>GET /?x=\x66\x6F\x6F\x62\x61\x72 HTTP/2
+Host: hackvertor.co.uk
+Accept-Encoding: gzip, deflate, br
+Accept: */*
+Accept-Language: en-US;q=0.9,en;q=0.8
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.138 Safari/537.36
+Cache-Control: max-age=0
 </code></pre>
 
 <p>Now send this request to Repeater around 5 times. After the 5th request Hackvertor should send the request to the AI for analysis. If successful, it should produce custom tags that encode or decode the encoding.</p>
 
-<p>If you enable "Debug AI requests" in the Settings, you should see the conversation between Hackvertor and the AI.</p>
+<p>If you enable Debug AI requests in the Settings, you should see the conversation between Hackvertor and the AI.</p>
 
-<p>When the tags have been created, they should be available in "Hackvertor -&gt; List custom tags".</p>
+<p>When the tags have been created, they should be available in Hackvertor -&gt; List custom tags.</p>
 
-
-<p>Copyright &copy; 2015-2025 PortSwigger Ltd.</p>
-
+<p>Copyright &copy; 2015-2026 PortSwigger Ltd.</p>
