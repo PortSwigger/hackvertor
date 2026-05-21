@@ -1,17 +1,36 @@
 # Changelog
 
-## Version v2.2.45 (2026-02-20)
+## Version v2.2.51 (2026-05-20)
 
-- Merge pull request #41 from hackvertor/master
+- - Made request/response available in Tag Automator - Fixed UTF-8 issues in requests - Fixed context body to convert tags
+- Merge remote-tracking branch 'origin/master'
+- Changed shared get tag execution key to be a Supplier instead of Function
+- Update CHANGELOG.md for v2.2.47
+
+## Version v2.2.47 (2026-05-20)
+
+- Added shared get tag execution key function and updated bambda code
+- Update CHANGELOG.md for v2.2.46
+
+## Version v2.2.46 (2026-05-20)
+
+- Added copy Bambda to clipboard option and a shared Hackvertor function
+- Create csv_to_xlsx.py
+- Added csv_to_xslx tag to the tag store JSON file
+- New textToPdf tag
+
+## Version v2.2.45 (2026-05-06)
+
+- Merge pull request #1 from hackvertor/master
+- Merge pull request #160 from psalire/master
+- Add remove_newlines tag
+- Merge pull request #159 from yinsel/master
+- Sync font with the configured font; update default file encoding detection
 - Update CHANGELOG.md for v2.2.45
 - Bumped version
 - Fixed UI issues
 - Fixed UI issues
 - Update CHANGELOG.md for v2.2.43
-- Merge pull request #156 from snooze6/master
-- reverted bappmanifest.bmf
-- Merge pull request #157 from psalire/master
-- Fixed parser bug with self-closing tags and space. Added tests to cover it.
 
 ## Version v2.2.45 (2026-02-19)
 

@@ -60,6 +60,13 @@
     "language": "Python"
   },
   {
+    "tagName": "textToPdf",
+    "description": "Create a PDF file on the fly, input is text in the PDF",
+    "author": "pentagridsec",
+    "numberOfArgs": 0,
+    "language": "Python"
+  },
+  {
     "tagName": "ip",
     "description": "Generates a random IP",
     "author": "Techbrunch",
@@ -240,5 +247,19 @@
     "argument2": "notused",
     "argument2Type": "String",
     "argument2Default": ""
+  },
+  {
+    "description": "Replace newlines with spaces",
+    "language": "Python",
+    "tagName": "remove_newlines",
+    "author": "psalire",
+    "numberOfArgs": 0
+  },
+  {
+   "description": "Turn a CSV string into a valid XLSX string",
+   "language": "Python",
+   "tagName": "csv_to_xlsx",
+   "author": "bylbok",
+   "numberOfArgs": 0
   }
 ]

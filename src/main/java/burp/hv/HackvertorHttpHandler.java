@@ -15,6 +15,7 @@ import burp.hv.tags.TagAutomator;
 import burp.hv.utils.TagUtils;
 import org.json.JSONArray;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 
 import static burp.hv.HackvertorExtension.montoyaApi;
@@ -51,7 +52,7 @@ public class HackvertorHttpHandler implements burp.api.montoya.http.handler.Http
         }
         if(!TagUtils.shouldProcessTags(req.toolSource().toolType())) return null;
 
-        String requestStr = req.toString();
+        String requestStr = new String(req.toByteArray().getBytes(), StandardCharsets.UTF_8);
         String tool = getToolFromToolType(req.toolSource().toolType());
         boolean hasTagAutomatorRules = TagAutomator.shouldApplyRules("request", tool, "HTTP");
         if (requestStr.contains("<@") || hasTagAutomatorRules) {
@@ -93,7 +94,9 @@ public class HackvertorHttpHandler implements burp.api.montoya.http.handler.Http
             if(!TagAutomator.shouldApplyRules("response", tool, "HTTP")) return null;
             if(!TagUtils.shouldProcessTags(resp.toolSource().toolType())) return null;
             if(resp.body().length() > maxBodyLength) return null;
-            String responseStr = resp.toString();
+            HackvertorExtension.hackvertor.setRequest(resp.initiatingRequest());
+            HackvertorExtension.hackvertor.setResponse(resp);
+            String responseStr = new String(resp.toByteArray().getBytes(), StandardCharsets.UTF_8);
             final String finalResponseStr = responseStr;
             try {
                 responseStr = HackvertorExtension.executorService.submit(() -> TagAutomator.applyRules(finalResponseStr, "response", tool, "HTTP")).get();
