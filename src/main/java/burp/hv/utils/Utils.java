@@ -175,7 +175,17 @@ public class Utils {
         copyBambdaCodeMenu.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                String bambdaCode = "var hackvertorConvert = (java.util.function.Function) System.getProperties().get(\"hackvertor.convert\");\n" +
+                String bambdaCode = "// This snippet exposes Hackvertor's tag conversion engine inside a Bambda (e.g. Custom Action,\n" +
+                        "// Proxy/Logger Filter, or HTTP match-and-replace Bambda) in Burp Suite.\n" +
+                        "// It pulls the `hackvertor.convert` function and the `hackvertor.getTagExecutionKey` supplier\n" +
+                        "// from system properties (registered by the Hackvertor extension at load time), then calls\n" +
+                        "// `hackvertorConvert.apply(...)` on any string containing Hackvertor tags to get the converted\n" +
+                        "// result back. The execution key is required for tags that run code (python/js/java/groovy).\n" +
+                        "// Typical uses: transform requests/responses on the fly, decode payloads before matching in a\n" +
+                        "// filter Bambda, or generate dynamic values in a Custom Action. Replace the example tag below\n" +
+                        "// with any Hackvertor expression, and replace `\"test\"` with the input you want to convert\n" +
+                        "// (for example, a value extracted from the current request or response).\n" +
+                        "var hackvertorConvert = (java.util.function.Function) System.getProperties().get(\"hackvertor.convert\");\n" +
                         "var hackvertorGetTagExecutionKey = (java.util.function.Supplier) System.getProperties().get(\"hackvertor.getTagExecutionKey\");\n" +
                         "if(hackvertorConvert != null && hackvertorGetTagExecutionKey != null) {\n" +
                         "  var executionKey = (String) hackvertorGetTagExecutionKey.get();\n" +
