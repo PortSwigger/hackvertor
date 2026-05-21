@@ -909,7 +909,7 @@ public class Convertors {
         if(hackvertor == null || hackvertor.getRequest() == null) {
             return "";
         }
-        return hackvertor.getRequest().bodyToString();
+        return weakConvert(new HashMap<>(), hackvertor.getCustomTags(), hackvertor.getRequest().bodyToString(), hackvertor);
     }
 
     static String increment_var(HashMap<String, String> variableMap, int start, String variableName, Boolean enabled) {
@@ -1324,11 +1324,26 @@ public class Convertors {
 
     static String decode_base64(String str) {
         try {
-            str = helpers.bytesToString(helpers.base64Decode(str));
+            str = decodeBytesPreservingBinary(helpers.base64Decode(str));
         } catch (Exception e) {
             stderr.println(e.getMessage());
         }
         return str;
+    }
+
+    private static String decodeBytesPreservingBinary(byte[] bytes) {
+        if (bytes == null) {
+            return "";
+        }
+        try {
+            return StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                    .decode(java.nio.ByteBuffer.wrap(bytes))
+                    .toString();
+        } catch (java.nio.charset.CharacterCodingException e) {
+            return new String(bytes, StandardCharsets.ISO_8859_1);
+        }
     }
 
     static String base64urlEncode(String str) {
@@ -1407,7 +1422,7 @@ public class Convertors {
                 str += "=";
                 break;
         }
-        return helpers.bytesToString(helpers.base64Decode(str));
+        return decodeBytesPreservingBinary(helpers.base64Decode(str));
     }
 
     static String burp_urlencode(String str) {
@@ -4182,6 +4197,10 @@ public class Convertors {
             pythonInterpreter.set("executionKey", executionKey);
             pythonInterpreter.set("variableMap", variableMap);
             pythonInterpreter.set("customTags", customTags);
+            if (hackvertor != null) {
+                pythonInterpreter.set("request", hackvertor.getRequest());
+                pythonInterpreter.set("response", hackvertor.getResponse());
+            }
             for (Map.Entry<String, String> entry : variableMap.entrySet()) {
                 String name = entry.getKey();
                 Object value = entry.getValue();
@@ -4251,6 +4270,10 @@ public class Convertors {
             javaInterpreter.set("variableMap", variableMap);
             javaInterpreter.set("executionKey", executionKey);
             javaInterpreter.set("customTags", customTags);
+            if (hackvertor != null) {
+                javaInterpreter.set("request", hackvertor.getRequest());
+                javaInterpreter.set("response", hackvertor.getResponse());
+            }
             String initCode = """
                     import burp.hv.Convertors;
                     public String convert(String input) {
@@ -4354,6 +4377,10 @@ public class Convertors {
         data.setVariable("variableMap", variableMap);
         data.setVariable("executionKey", executionKey);
         data.setVariable("customTags", customTags);
+        if (hackvertor != null) {
+            data.setVariable("request", hackvertor.getRequest());
+            data.setVariable("response", hackvertor.getResponse());
+        }
         String initCode = """
                 public String convert(String input) {
                    return Convertors.weakConvert(variableMap, customTags, input, hackvertor)
@@ -4379,6 +4406,11 @@ public class Convertors {
             Context context = Context.newBuilder("js").allowIO(true).allowHostAccess(HostAccess.ALL).build();
             context.getBindings("js").putMember("input", input);
             context.getBindings("js").putMember("executionKey", executionKey);
+            context.getBindings("js").putMember("hackvertor", hackvertor);
+            if (hackvertor != null) {
+                context.getBindings("js").putMember("request", hackvertor.getRequest());
+                context.getBindings("js").putMember("response", hackvertor.getResponse());
+            }
             context.getBindings("js").putMember("atob", (EmitReturn<String>) Convertors::decode_base64);
             context.getBindings("js").putMember("btoa", (EmitReturn<String>) Convertors::base64Encode);
             context.getBindings("js").putMember("convert", (EmitReturn<String>) (tagInput) -> Convertors.weakConvert(variableMap, customTags, tagInput, hackvertor));

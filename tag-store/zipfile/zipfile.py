@@ -112,7 +112,7 @@ if '/' in filename_from_argument:
 info = zipfileLibrary.ZipInfo(filename_from_argument)
 info.date_time = time.localtime(time.time())[:6]
 info.external_attr = 0o777 << 16
-zf.writestr(info, file_content)
+zf.writestr(info, file_content, compress_type=zipfileLibrary.ZIP_DEFLATED)
 
 zf.close()
 
