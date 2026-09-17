@@ -1,8 +1,18 @@
 # Changelog
 
-## Version v2.2.64 (2026-09-12)
+## Version v2.2.67 (2026-09-17)
 
-- Merge pull request #47 from hackvertor/master
+- Added a what's new tab to advertise new features
+- Update CHANGELOG.md for v2.2.66
+
+## Version v2.2.66 (2026-09-16)
+
+- Fix bug where new line didn't start a new expression
+- Update CHANGELOG.md for v2.2.65
+
+## Version v2.2.65 (2026-09-16)
+
+- Created a check tag that allows you to call in built or custom tags to enable you to perform expressions on tag input.
 - Allowed a setting to customise hotkeys
 - Allowed a setting to customise hotkeys
 - Remembered mode choice
