@@ -9,6 +9,7 @@ import burp.hv.tags.Tag;
 import burp.hv.tags.TagStore;
 import burp.hv.ui.jigsaw.JigsawBoard;
 import burp.hv.utils.GridbagUtils;
+import burp.hv.utils.ExecutionKeyRedactor;
 import burp.hv.utils.TagUtils;
 import burp.hv.utils.Utils;
 import burp.parser.Element;
@@ -204,14 +205,17 @@ public class HackvertorPanel extends JPanel {
                     }
                     executorService.submit(() -> {
                         String output = hackvertor.convert(inputArea.getText(), null);
-                        try {
-                            outputArea.getDocument().remove(0, outputArea.getDocument().getLength());
-                            outputArea.getDocument().insertString(0, output, null);
-                        } catch (BadLocationException e) {
-                            e.printStackTrace();
-                        }
-                        outputArea.setCaretPosition(0);
-                        addToHistory();
+                        // Convert off the EDT but update the output on it, as the output's listeners touch other components.
+                        SwingUtilities.invokeLater(() -> {
+                            try {
+                                outputArea.getDocument().remove(0, outputArea.getDocument().getLength());
+                                outputArea.getDocument().insertString(0, output, null);
+                            } catch (BadLocationException e) {
+                                e.printStackTrace();
+                            }
+                            outputArea.setCaretPosition(0);
+                            addToHistory();
+                        });
                     });
                 }
 
@@ -388,7 +392,7 @@ public class HackvertorPanel extends JPanel {
                 String input = inputArea.getText();
                 String clipboard = "";
                 try {
-                    clipboard = Toolkit.getDefaultToolkit().getSystemClipboard().getData(DataFlavor.stringFlavor).toString();
+                    clipboard = Utils.getClipboard().getData(DataFlavor.stringFlavor).toString();
                 } catch (UnsupportedFlavorException | IOException unsupportedFlavorException) {
                     unsupportedFlavorException.printStackTrace();
                 }
@@ -507,6 +511,7 @@ public class HackvertorPanel extends JPanel {
             int confirm = JOptionPane.showConfirmDialog(this, "Are you sure? This will replace any tag execution key with your current one. You should not run this on untrusted code");
             if(confirm == 0) {
                 String existingText = this.inputArea.getSelectedText();
+                ExecutionKeyRedactor.markKeyInUse();
                 this.inputArea.replaceSelection(existingText.replaceAll("[a-f0-9]{32}", tagCodeExecutionKey));
             }
         });
@@ -840,7 +845,7 @@ public class HackvertorPanel extends JPanel {
 
     public void readClipboardAndDecode() {
         try {
-            String data = (String) Toolkit.getDefaultToolkit().getSystemClipboard().getData(DataFlavor.stringFlavor);
+            String data = (String) Utils.getClipboard().getData(DataFlavor.stringFlavor);
             if(data.length() > 10000) {
                 return;
             }

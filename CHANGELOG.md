@@ -1,5 +1,30 @@
 # Changelog
 
+## Version v2.2.69 (2026-11-24)
+
+- Detect version bumps anywhere in a multi-commit push
+- Only scan for the tag execution key once it has been handed out
+- Add v2.2.69 changes to the What's new tab
+- Harden tag execution key redaction
+- Bump version to v2.2.69
+- Redact the tag execution key from outgoing traffic
+- Disable tags in Intruder and Scanner by default
+- Merge remote-tracking branch 'origin/master'
+- Run the UI tests headlessly
+- Update CHANGELOG.md for v2.2.68
+
+## Version v2.2.68 (2026-11-12)
+
+- Fix Jigsaw mode parsing of named set_/get_ variable tags
+- Merge branch 'master' into master
+- Update CHANGELOG.md for v2.2.67
+- Update BappManifest.bmf
+- Update CHANGELOG.md for v2.2.64
+- Merge pull request #47 from hackvertor/master
+- Update BappManifest.bmf
+- Update CHANGELOG.md for v2.2.60
+- Merge pull request #46 from hackvertor/master
+
 ## Version v2.2.67 (2026-09-17)
 
 - Added a what's new tab to advertise new features

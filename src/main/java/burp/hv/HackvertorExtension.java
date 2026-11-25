@@ -29,6 +29,7 @@ import burp.hv.tags.Tag;
 import burp.hv.tags.TagAutomator;
 import burp.hv.tags.TagStore;
 import burp.hv.ui.*;
+import burp.hv.utils.ExecutionKeyRedactor;
 import burp.hv.utils.TagUtils;
 import burp.hv.utils.Utils;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
@@ -52,7 +53,7 @@ import static burp.hv.utils.TagUtils.generateTagActionListener;
 public class HackvertorExtension implements BurpExtension, IBurpExtender, ITab, IExtensionStateListener, IMessageEditorTabFactory {
     //TODO Unset on unload
     public static String extensionName = "Hackvertor";
-    public static String version = "v2.2.67";
+    public static String version = "v2.2.69";
     public static Supplier<String> sharedGetTagExecutionKey = null;
     public static Function<String, String> sharedConvert = null;
     public static JFrame HackvertorFrame = null;
@@ -133,7 +134,10 @@ public class HackvertorExtension implements BurpExtension, IBurpExtender, ITab, 
             Variables.loadGlobalVariables();
             registerPayloadProcessors();
             Function<String, String> sharedConvert = (input) -> hackvertor.convert(input, hackvertor);
-            Supplier<String> sharedGetTagExecutionKey = () -> tagCodeExecutionKey;
+            Supplier<String> sharedGetTagExecutionKey = () -> {
+                ExecutionKeyRedactor.markKeyInUse();
+                return tagCodeExecutionKey;
+            };
             System.getProperties().put("hackvertor.convert", sharedConvert);
             System.getProperties().put("hackvertor.getTagExecutionKey", sharedGetTagExecutionKey);
 
@@ -421,7 +425,7 @@ public class HackvertorExtension implements BurpExtension, IBurpExtender, ITab, 
 
     public static String readClipboardString() {
         try {
-            return (String) Toolkit.getDefaultToolkit().getSystemClipboard().getData(DataFlavor.stringFlavor);
+            return (String) Utils.getClipboard().getData(DataFlavor.stringFlavor);
         } catch (UnsupportedFlavorException | IOException e) {
             return null;
         }
